@@ -1,6 +1,57 @@
-from sqlalchemy import Column, Integer, String, Text
+from sqlalchemy import Column, Integer, String, Text, DateTime
 from database import Base
 import json
+from datetime import datetime
+
+DEFAULT_AVATAR_CONFIG = {
+    "skin_color": "#FCD34D",
+    "hair_style": "short_wavy",
+    "hair_color": "#1E293B",
+    "eye_style": "round",
+    "expression": "happy",
+    "accessory": "yellow_glasses",
+    "shirt_color": "#0284C7",
+    "bg_color": "#0F172A"
+}
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    age = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    _avatar = Column("avatar", Text, default='{}')
+    _avatar_config = Column("avatar_config", Text, default=json.dumps(DEFAULT_AVATAR_CONFIG))
+
+    @property
+    def avatar(self):
+        try:
+            return json.loads(self._avatar) if self._avatar else {}
+        except Exception:
+            return {}
+
+    @avatar.setter
+    def avatar(self, value):
+        self._avatar = json.dumps(value)
+
+    @property
+    def avatar_config(self):
+        try:
+            val = json.loads(self._avatar_config) if self._avatar_config else {}
+            if not val or not isinstance(val, dict):
+                return DEFAULT_AVATAR_CONFIG.copy()
+            res = DEFAULT_AVATAR_CONFIG.copy()
+            res.update(val)
+            return res
+        except Exception:
+            return DEFAULT_AVATAR_CONFIG.copy()
+
+    @avatar_config.setter
+    def avatar_config(self, value):
+        self._avatar_config = json.dumps(value)
 
 class UserProgress(Base):
     __tablename__ = "user_progress"
