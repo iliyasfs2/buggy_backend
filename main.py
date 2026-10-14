@@ -1,7 +1,7 @@
 import json
 import time
 from typing import List, Optional
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 BATTERY_REFILL_DURATION = 15 * 60
 from fastapi import FastAPI, HTTPException, Depends, status
@@ -109,7 +109,8 @@ def get_user_progress(db: Session, user: Optional[models.User] = None):
             bytes=100,
             streak=0,
             totalXP=0,
-            active_course="javascript"
+            active_course="javascript",
+            last_battery_update=datetime.utcnow()
         )
         db.add(progress)
         db.commit()
@@ -131,24 +132,46 @@ def ensure_daily_quests(progress, db):
         db.refresh(progress)
     return quests
 
-def check_and_update_battery_timer(progress, db: Session):
-    now = time.time()
-    recharge_at = getattr(progress, "battery_recharge_at", None)
-    if progress.battery == 0:
-        if recharge_at is None:
-            progress.battery_recharge_at = now + BATTERY_REFILL_DURATION
-            db.commit()
-            db.refresh(progress)
-        elif now >= recharge_at:
+def sync_user_battery(progress: models.UserProgress, db: Optional[Session] = None) -> int:
+    now = datetime.utcnow()
+    changed = False
+    if progress.battery < 5:
+        if not progress.last_battery_update:
+            progress.last_battery_update = now
+            changed = True
+            elapsed = 0.0
+        else:
+            elapsed = (now - progress.last_battery_update).total_seconds()
+            if elapsed < 0:
+                elapsed = 0.0
+
+        units = int(elapsed // 1800)
+        if units > 0:
+            progress.battery = min(5, progress.battery + units)
+            progress.last_battery_update = progress.last_battery_update + timedelta(seconds=units * 1800)
+            changed = True
+
+        if progress.battery >= 5:
             progress.battery = 5
-            progress.battery_recharge_at = None
+            seconds_left = 0
+        else:
+            current_elapsed = (now - progress.last_battery_update).total_seconds()
+            seconds_left = max(0, int(1800 - (current_elapsed % 1800)))
+    else:
+        if progress.battery > 5:
+            progress.battery = 5
+            changed = True
+        progress.last_battery_update = now
+        seconds_left = 0
+
+    if changed and db:
+        try:
             db.commit()
             db.refresh(progress)
-    elif progress.battery >= 5:
-        if recharge_at is not None:
-            progress.battery_recharge_at = None
-            db.commit()
-            db.refresh(progress)
+        except Exception:
+            pass
+
+    return seconds_left
 
 def serialize_mistake(m: models.UserMistake):
     return {
@@ -162,13 +185,15 @@ def serialize_mistake(m: models.UserMistake):
         "correct_answer": m.correct_answer,
         "explanation": m.explanation,
         "status": m.status,
+        "resolved": bool(m.resolved),
         "created_at": m.created_at.isoformat() if m.created_at else None
     }
 
 def ensure_seed_mistakes(db: Session, user_id: str):
     count = db.query(models.UserMistake).filter(
         models.UserMistake.user_id == user_id,
-        models.UserMistake.status == "pending"
+        models.UserMistake.resolved != True,
+        models.UserMistake.status != "resolved"
     ).count()
     if count == 0:
         seed_data = [
@@ -181,7 +206,8 @@ def ensure_seed_mistakes(db: Session, user_id: str):
                 user_answer="10 20",
                 correct_answer="10 undefined",
                 explanation="Variables declared with let are block-scoped and cannot be accessed outside the if block, whereas var is function-scoped.",
-                status="pending"
+                status="pending",
+                resolved=False
             ),
             models.UserMistake(
                 user_id=user_id,
@@ -192,7 +218,8 @@ def ensure_seed_mistakes(db: Session, user_id: str):
                 user_answer="true true",
                 correct_answer="false false",
                 explanation="Arrays in JavaScript are compared by reference, not by content. Two distinct array instances are never equal.",
-                status="pending"
+                status="pending",
+                resolved=False
             ),
             models.UserMistake(
                 user_id=user_id,
@@ -203,20 +230,23 @@ def ensure_seed_mistakes(db: Session, user_id: str):
                 user_answer="[1, 2, 3, 4]",
                 correct_answer="4",
                 explanation="Array.prototype.push modifies the array in place and returns the new length of the array, not the array itself.",
-                status="pending"
+                status="pending",
+                resolved=False
             )
         ]
         db.add_all(seed_data)
         db.commit()
 
 def get_progress_response(progress, db: Optional[Session] = None):
+    seconds_left = sync_user_battery(progress, db)
     mistakes_count = 0
     if db:
         try:
             ensure_seed_mistakes(db, progress.user_id)
             mistakes_count = db.query(models.UserMistake).filter(
                 models.UserMistake.user_id == progress.user_id,
-                models.UserMistake.status == "pending"
+                models.UserMistake.resolved != True,
+                models.UserMistake.status != "resolved"
             ).count()
         except Exception:
             mistakes_count = 0
@@ -225,6 +255,10 @@ def get_progress_response(progress, db: Optional[Session] = None):
         "totalXP": progress.totalXP,
         "streak": progress.streak,
         "battery": progress.battery,
+        "max_battery": 5,
+        "seconds_until_next_refill": seconds_left,
+        "unresolved_mistakes_count": mistakes_count,
+        "mistakes_count": mistakes_count,
         "battery_recharge_at": getattr(progress, "battery_recharge_at", None),
         "bytes": progress.bytes,
         "streak_freeze": getattr(progress, "streak_freeze", 0) or 0,
@@ -232,8 +266,7 @@ def get_progress_response(progress, db: Optional[Session] = None):
         "completed_nodes": progress.completed_nodes,
         "unlocked_nodes": progress.unlocked_nodes,
         "daily_quests_date": progress.daily_quests_date,
-        "daily_quests_state": progress.daily_quests_state,
-        "mistakes_count": mistakes_count
+        "daily_quests_state": progress.daily_quests_state
     }
 def serialize_user(user: models.User):
     return {
@@ -298,7 +331,8 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
         bytes=100,
         streak=0,
         totalXP=0,
-        active_course="javascript"
+        active_course="javascript",
+        last_battery_update=datetime.utcnow()
     )
     db.add(progress)
     db.commit()
@@ -367,12 +401,14 @@ def update_avatar_config(
     return {"user": serialize_user(user), "avatar_config": user.avatar_config}
 
 @app.get("/progress")
+@app.get("/api/user/progress")
+@app.get("/user/progress")
 def get_progress(
     user: Optional[models.User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     progress = get_user_progress(db, user)
-    check_and_update_battery_timer(progress, db)
+    sync_user_battery(progress, db)
     ensure_daily_quests(progress, db)
     return get_progress_response(progress, db)
 
@@ -383,6 +419,7 @@ def complete_node(
     db: Session = Depends(get_db)
 ):
     progress = get_user_progress(db, user)
+    sync_user_battery(progress, db)
     if req.earnedXp:
         progress.totalXP += req.earnedXp
     completed = progress.completed_nodes
@@ -408,7 +445,7 @@ def complete_node(
 
     db.commit()
     db.refresh(progress)
-    return get_progress_response(progress)
+    return get_progress_response(progress, db)
 
 @app.post("/progress/decrease-battery")
 def decrease_battery(
@@ -416,14 +453,14 @@ def decrease_battery(
     db: Session = Depends(get_db)
 ):
     progress = get_user_progress(db, user)
-    check_and_update_battery_timer(progress, db)
+    sync_user_battery(progress, db)
     if progress.battery > 0:
+        if progress.battery == 5 or not progress.last_battery_update:
+            progress.last_battery_update = datetime.utcnow()
         progress.battery -= 1
-        if progress.battery == 0 and not progress.battery_recharge_at:
-            progress.battery_recharge_at = time.time() + BATTERY_REFILL_DURATION
         db.commit()
         db.refresh(progress)
-    return get_progress_response(progress)
+    return get_progress_response(progress, db)
 
 @app.post("/progress/recharge-battery")
 def recharge_battery(
@@ -431,13 +468,12 @@ def recharge_battery(
     db: Session = Depends(get_db)
 ):
     progress = get_user_progress(db, user)
-    check_and_update_battery_timer(progress, db)
-    if progress.battery < 5:
-        progress.battery = 5
-        progress.battery_recharge_at = None
-        db.commit()
-        db.refresh(progress)
-    return get_progress_response(progress)
+    progress.battery = 5
+    progress.last_battery_update = datetime.utcnow()
+    progress.battery_recharge_at = None
+    db.commit()
+    db.refresh(progress)
+    return get_progress_response(progress, db)
 
 @app.post("/bytes/transaction")
 def bytes_transaction(
@@ -461,7 +497,7 @@ def switch_course(
     progress.active_course = req.courseId
     db.commit()
     db.refresh(progress)
-    return get_progress_response(progress)
+    return get_progress_response(progress, db)
 
 @app.post("/quests/claim")
 def claim_quest(
@@ -481,7 +517,7 @@ def claim_quest(
     progress.daily_quests_state = quests
     db.commit()
     db.refresh(progress)
-    return get_progress_response(progress)
+    return get_progress_response(progress, db)
 
 @app.post("/api/store/buy")
 @app.post("/store/buy")
@@ -501,6 +537,7 @@ def buy_store_item(
             raise HTTPException(status_code=400, detail="Battery is already full")
         progress.bytes -= price
         progress.battery = 5
+        progress.last_battery_update = datetime.utcnow()
         progress.battery_recharge_at = None
 
     elif item_id == "streak_freeze":
@@ -530,7 +567,8 @@ def get_user_mistakes(
     ensure_seed_mistakes(db, user_id)
     items = db.query(models.UserMistake).filter(
         models.UserMistake.user_id == user_id,
-        models.UserMistake.status == "pending"
+        models.UserMistake.resolved != True,
+        models.UserMistake.status != "resolved"
     ).order_by(models.UserMistake.created_at.desc()).all()
     return {
         "mistakes": [serialize_mistake(m) for m in items],
@@ -554,7 +592,8 @@ def create_user_mistake(
         user_answer=req.user_answer or "",
         correct_answer=req.correct_answer or "",
         explanation=req.explanation or "",
-        status="pending"
+        status="pending",
+        resolved=False
     )
     db.add(mistake)
     db.commit()
@@ -576,6 +615,7 @@ def resolve_user_mistake(
     if not mistake:
         raise HTTPException(status_code=404, detail="Mistake not found")
     mistake.status = "resolved"
+    mistake.resolved = True
     progress = get_user_progress(db, user)
     progress.bytes += 10
     progress.totalXP += 10
@@ -584,7 +624,8 @@ def resolve_user_mistake(
     db.refresh(progress)
     remaining_count = db.query(models.UserMistake).filter(
         models.UserMistake.user_id == user_id,
-        models.UserMistake.status == "pending"
+        models.UserMistake.resolved != True,
+        models.UserMistake.status != "resolved"
     ).count()
     return {
         "success": True,
@@ -604,11 +645,12 @@ def get_debug_stats(
     ensure_seed_mistakes(db, user_id)
     pending_count = db.query(models.UserMistake).filter(
         models.UserMistake.user_id == user_id,
-        models.UserMistake.status == "pending"
+        models.UserMistake.resolved != True,
+        models.UserMistake.status != "resolved"
     ).count()
     resolved_count = db.query(models.UserMistake).filter(
         models.UserMistake.user_id == user_id,
-        models.UserMistake.status == "resolved"
+        or_(models.UserMistake.resolved == True, models.UserMistake.status == "resolved")
     ).count()
     return {
         "pending_mistakes_count": pending_count,

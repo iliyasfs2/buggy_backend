@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean
 from database import Base
 import json
 from datetime import datetime
@@ -64,6 +64,7 @@ class UserProgress(Base):
     bytes = Column(Integer, default=100)
     streak_freeze = Column(Integer, default=0)
     battery_recharge_at = Column(Float, default=None, nullable=True)
+    last_battery_update = Column(DateTime, default=datetime.utcnow, nullable=True)
     active_course = Column(String, default="javascript")
     daily_quests_date = Column(String, default="")
     _daily_quests_state = Column("daily_quests_state", Text, default='[]')
@@ -107,4 +108,5 @@ class UserMistake(Base):
     correct_answer = Column(Text, default="")
     explanation = Column(Text, default="")
     status = Column(String, default="pending")
+    resolved = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
