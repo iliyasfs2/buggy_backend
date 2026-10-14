@@ -1,6 +1,9 @@
 import json
+import time
 from typing import List, Optional
 from datetime import date, datetime
+
+BATTERY_REFILL_DURATION = 15 * 60
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -119,11 +122,31 @@ def ensure_daily_quests(progress, db):
         db.refresh(progress)
     return quests
 
+def check_and_update_battery_timer(progress, db: Session):
+    now = time.time()
+    recharge_at = getattr(progress, "battery_recharge_at", None)
+    if progress.battery == 0:
+        if recharge_at is None:
+            progress.battery_recharge_at = now + BATTERY_REFILL_DURATION
+            db.commit()
+            db.refresh(progress)
+        elif now >= recharge_at:
+            progress.battery = 5
+            progress.battery_recharge_at = None
+            db.commit()
+            db.refresh(progress)
+    elif progress.battery >= 5:
+        if recharge_at is not None:
+            progress.battery_recharge_at = None
+            db.commit()
+            db.refresh(progress)
+
 def get_progress_response(progress):
     return {
         "totalXP": progress.totalXP,
         "streak": progress.streak,
         "battery": progress.battery,
+        "battery_recharge_at": getattr(progress, "battery_recharge_at", None),
         "bytes": progress.bytes,
         "streak_freeze": getattr(progress, "streak_freeze", 0) or 0,
         "active_course": progress.active_course,
@@ -269,6 +292,7 @@ def get_progress(
     db: Session = Depends(get_db)
 ):
     progress = get_user_progress(db, user)
+    check_and_update_battery_timer(progress, db)
     ensure_daily_quests(progress, db)
     return get_progress_response(progress)
 
@@ -312,11 +336,14 @@ def decrease_battery(
     db: Session = Depends(get_db)
 ):
     progress = get_user_progress(db, user)
+    check_and_update_battery_timer(progress, db)
     if progress.battery > 0:
         progress.battery -= 1
+        if progress.battery == 0 and not progress.battery_recharge_at:
+            progress.battery_recharge_at = time.time() + BATTERY_REFILL_DURATION
         db.commit()
         db.refresh(progress)
-    return {"battery": progress.battery}
+    return get_progress_response(progress)
 
 @app.post("/progress/recharge-battery")
 def recharge_battery(
@@ -324,11 +351,13 @@ def recharge_battery(
     db: Session = Depends(get_db)
 ):
     progress = get_user_progress(db, user)
+    check_and_update_battery_timer(progress, db)
     if progress.battery < 5:
-        progress.battery += 1
+        progress.battery = 5
+        progress.battery_recharge_at = None
         db.commit()
         db.refresh(progress)
-    return {"battery": progress.battery}
+    return get_progress_response(progress)
 
 @app.post("/bytes/transaction")
 def bytes_transaction(
@@ -392,6 +421,7 @@ def buy_store_item(
             raise HTTPException(status_code=400, detail="Battery is already full")
         progress.bytes -= price
         progress.battery = 5
+        progress.battery_recharge_at = None
 
     elif item_id == "streak_freeze":
         price = 200
