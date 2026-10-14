@@ -189,54 +189,6 @@ def serialize_mistake(m: models.UserMistake):
         "created_at": m.created_at.isoformat() if m.created_at else None
     }
 
-def ensure_seed_mistakes(db: Session, user_id: str):
-    count = db.query(models.UserMistake).filter(
-        models.UserMistake.user_id == user_id,
-        models.UserMistake.resolved != True,
-        models.UserMistake.status != "resolved"
-    ).count()
-    if count == 0:
-        seed_data = [
-            models.UserMistake(
-                user_id=user_id,
-                node_id="js-1-1",
-                lesson_title="Variables & Scope",
-                question_title="Predict output of block-scoped variable",
-                code_snippet="function checkScope() {\n  if (true) {\n    var a = 10;\n    let b = 20;\n  }\n  console.log(a, typeof b);\n}\ncheckScope();",
-                user_answer="10 20",
-                correct_answer="10 undefined",
-                explanation="Variables declared with let are block-scoped and cannot be accessed outside the if block, whereas var is function-scoped.",
-                status="pending",
-                resolved=False
-            ),
-            models.UserMistake(
-                user_id=user_id,
-                node_id="js-1-2",
-                lesson_title="Equality & Coercion",
-                question_title="Strict vs loose equality result",
-                code_snippet="const listA = [1, 2];\nconst listB = [1, 2];\nconsole.log(listA == listB, listA === listB);",
-                user_answer="true true",
-                correct_answer="false false",
-                explanation="Arrays in JavaScript are compared by reference, not by content. Two distinct array instances are never equal.",
-                status="pending",
-                resolved=False
-            ),
-            models.UserMistake(
-                user_id=user_id,
-                node_id="js-1-3",
-                lesson_title="Array Mutation",
-                question_title="Array method return value",
-                code_snippet="const numbers = [1, 2, 3];\nconst result = numbers.push(4);\nconsole.log(result);",
-                user_answer="[1, 2, 3, 4]",
-                correct_answer="4",
-                explanation="Array.prototype.push modifies the array in place and returns the new length of the array, not the array itself.",
-                status="pending",
-                resolved=False
-            )
-        ]
-        db.add_all(seed_data)
-        db.commit()
-
 def update_user_streak(progress) -> bool:
     today = date.today()
     last_date = progress.last_active_date
@@ -278,7 +230,6 @@ def get_progress_response(progress, db: Optional[Session] = None, streak_increas
     mistakes_count = 0
     if db:
         try:
-            ensure_seed_mistakes(db, progress.user_id)
             mistakes_count = db.query(models.UserMistake).filter(
                 models.UserMistake.user_id == progress.user_id,
                 models.UserMistake.resolved != True,
@@ -602,7 +553,6 @@ def get_user_mistakes(
     db: Session = Depends(get_db)
 ):
     user_id = f"user_{user.id}" if user else "default_user"
-    ensure_seed_mistakes(db, user_id)
     items = db.query(models.UserMistake).filter(
         models.UserMistake.user_id == user_id,
         models.UserMistake.resolved != True,
@@ -621,6 +571,22 @@ def create_user_mistake(
     db: Session = Depends(get_db)
 ):
     user_id = f"user_{user.id}" if user else "default_user"
+    existing = db.query(models.UserMistake).filter(
+        models.UserMistake.user_id == user_id,
+        models.UserMistake.node_id == (req.node_id or ""),
+        models.UserMistake.question_title == (req.question_title or ""),
+        models.UserMistake.resolved != True,
+        models.UserMistake.status != "resolved"
+    ).first()
+    if existing:
+        existing.user_answer = req.user_answer or existing.user_answer
+        existing.code_snippet = req.code_snippet or existing.code_snippet
+        existing.correct_answer = req.correct_answer or existing.correct_answer
+        existing.explanation = req.explanation or existing.explanation
+        db.commit()
+        db.refresh(existing)
+        return serialize_mistake(existing)
+
     mistake = models.UserMistake(
         user_id=user_id,
         node_id=req.node_id or "",
@@ -680,7 +646,6 @@ def get_debug_stats(
     db: Session = Depends(get_db)
 ):
     user_id = f"user_{user.id}" if user else "default_user"
-    ensure_seed_mistakes(db, user_id)
     pending_count = db.query(models.UserMistake).filter(
         models.UserMistake.user_id == user_id,
         models.UserMistake.resolved != True,
