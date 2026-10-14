@@ -237,7 +237,43 @@ def ensure_seed_mistakes(db: Session, user_id: str):
         db.add_all(seed_data)
         db.commit()
 
-def get_progress_response(progress, db: Optional[Session] = None):
+def update_user_streak(progress) -> bool:
+    today = date.today()
+    last_date = progress.last_active_date
+    if isinstance(last_date, str):
+        try:
+            last_date = datetime.strptime(last_date, "%Y-%m-%d").date()
+        except Exception:
+            last_date = None
+    elif isinstance(last_date, datetime):
+        last_date = last_date.date()
+
+    if last_date == today:
+        return False
+
+    if last_date is None:
+        progress.streak = max(1, progress.streak or 1)
+        progress.last_active_date = today
+        return True
+
+    if last_date == today - timedelta(days=1):
+        progress.streak = (progress.streak or 0) + 1
+        progress.last_active_date = today
+        return True
+
+    freezes = getattr(progress, "streak_freeze", 0) or 0
+    days_missed = (today - last_date).days - 1
+    if freezes > 0 and days_missed <= freezes:
+        progress.streak_freeze = freezes - days_missed
+        progress.streak = (progress.streak or 0) + 1
+        progress.last_active_date = today
+        return True
+
+    progress.streak = 1
+    progress.last_active_date = today
+    return True
+
+def get_progress_response(progress, db: Optional[Session] = None, streak_increased: bool = False):
     seconds_left = sync_user_battery(progress, db)
     mistakes_count = 0
     if db:
@@ -254,6 +290,8 @@ def get_progress_response(progress, db: Optional[Session] = None):
     return {
         "totalXP": progress.totalXP,
         "streak": progress.streak,
+        "streak_increased": streak_increased,
+        "last_active_date": progress.last_active_date.isoformat() if progress.last_active_date else None,
         "battery": progress.battery,
         "max_battery": 5,
         "seconds_until_next_refill": seconds_left,
@@ -422,16 +460,16 @@ def complete_node(
     sync_user_battery(progress, db)
     if req.earnedXp:
         progress.totalXP += req.earnedXp
-    completed = progress.completed_nodes
-    unlocked = progress.unlocked_nodes
     if req.nodeId and req.nodeId not in completed:
-        progress.streak += 1
         completed.append(req.nodeId)
     if req.nextNodeId and req.nextNodeId not in unlocked:
         unlocked.append(req.nextNodeId)
 
     progress.completed_nodes = completed
     progress.unlocked_nodes = unlocked
+
+    streak_increased = update_user_streak(progress)
+
     quests = ensure_daily_quests(progress, db)
     for q in quests:
         if q["id"] == "q1":
@@ -445,7 +483,7 @@ def complete_node(
 
     db.commit()
     db.refresh(progress)
-    return get_progress_response(progress, db)
+    return get_progress_response(progress, db, streak_increased=streak_increased)
 
 @app.post("/progress/decrease-battery")
 def decrease_battery(
