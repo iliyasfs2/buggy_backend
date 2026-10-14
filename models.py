@@ -93,3 +93,18 @@ class UserProgress(Base):
     @daily_quests_state.setter
     def daily_quests_state(self, value):
         self._daily_quests_state = json.dumps(value)
+
+class UserMistake(Base):
+    __tablename__ = "user_mistakes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, index=True, default="default_user")
+    node_id = Column(String, default="")
+    lesson_title = Column(String, default="")
+    question_title = Column(String, default="")
+    code_snippet = Column(Text, default="")
+    user_answer = Column(Text, default="")
+    correct_answer = Column(Text, default="")
+    explanation = Column(Text, default="")
+    status = Column(String, default="pending")
+    created_at = Column(DateTime, default=datetime.utcnow)

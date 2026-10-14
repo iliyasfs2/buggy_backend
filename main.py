@@ -90,6 +90,15 @@ class ClaimQuestRequest(BaseModel):
 class StoreBuyRequest(BaseModel):
     item_id: str
 
+class CreateMistakeRequest(BaseModel):
+    node_id: Optional[str] = ""
+    lesson_title: Optional[str] = ""
+    question_title: Optional[str] = ""
+    code_snippet: Optional[str] = ""
+    user_answer: Optional[str] = ""
+    correct_answer: Optional[str] = ""
+    explanation: Optional[str] = ""
+
 def get_user_progress(db: Session, user: Optional[models.User] = None):
     user_id = f"user_{user.id}" if user else "default_user"
     progress = db.query(models.UserProgress).filter(models.UserProgress.user_id == user_id).first()
@@ -141,7 +150,77 @@ def check_and_update_battery_timer(progress, db: Session):
             db.commit()
             db.refresh(progress)
 
-def get_progress_response(progress):
+def serialize_mistake(m: models.UserMistake):
+    return {
+        "id": m.id,
+        "user_id": m.user_id,
+        "node_id": m.node_id,
+        "lesson_title": m.lesson_title,
+        "question_title": m.question_title,
+        "code_snippet": m.code_snippet,
+        "user_answer": m.user_answer,
+        "correct_answer": m.correct_answer,
+        "explanation": m.explanation,
+        "status": m.status,
+        "created_at": m.created_at.isoformat() if m.created_at else None
+    }
+
+def ensure_seed_mistakes(db: Session, user_id: str):
+    count = db.query(models.UserMistake).filter(
+        models.UserMistake.user_id == user_id,
+        models.UserMistake.status == "pending"
+    ).count()
+    if count == 0:
+        seed_data = [
+            models.UserMistake(
+                user_id=user_id,
+                node_id="js-1-1",
+                lesson_title="Variables & Scope",
+                question_title="Predict output of block-scoped variable",
+                code_snippet="function checkScope() {\n  if (true) {\n    var a = 10;\n    let b = 20;\n  }\n  console.log(a, typeof b);\n}\ncheckScope();",
+                user_answer="10 20",
+                correct_answer="10 undefined",
+                explanation="Variables declared with let are block-scoped and cannot be accessed outside the if block, whereas var is function-scoped.",
+                status="pending"
+            ),
+            models.UserMistake(
+                user_id=user_id,
+                node_id="js-1-2",
+                lesson_title="Equality & Coercion",
+                question_title="Strict vs loose equality result",
+                code_snippet="const listA = [1, 2];\nconst listB = [1, 2];\nconsole.log(listA == listB, listA === listB);",
+                user_answer="true true",
+                correct_answer="false false",
+                explanation="Arrays in JavaScript are compared by reference, not by content. Two distinct array instances are never equal.",
+                status="pending"
+            ),
+            models.UserMistake(
+                user_id=user_id,
+                node_id="js-1-3",
+                lesson_title="Array Mutation",
+                question_title="Array method return value",
+                code_snippet="const numbers = [1, 2, 3];\nconst result = numbers.push(4);\nconsole.log(result);",
+                user_answer="[1, 2, 3, 4]",
+                correct_answer="4",
+                explanation="Array.prototype.push modifies the array in place and returns the new length of the array, not the array itself.",
+                status="pending"
+            )
+        ]
+        db.add_all(seed_data)
+        db.commit()
+
+def get_progress_response(progress, db: Optional[Session] = None):
+    mistakes_count = 0
+    if db:
+        try:
+            ensure_seed_mistakes(db, progress.user_id)
+            mistakes_count = db.query(models.UserMistake).filter(
+                models.UserMistake.user_id == progress.user_id,
+                models.UserMistake.status == "pending"
+            ).count()
+        except Exception:
+            mistakes_count = 0
+
     return {
         "totalXP": progress.totalXP,
         "streak": progress.streak,
@@ -153,7 +232,8 @@ def get_progress_response(progress):
         "completed_nodes": progress.completed_nodes,
         "unlocked_nodes": progress.unlocked_nodes,
         "daily_quests_date": progress.daily_quests_date,
-        "daily_quests_state": progress.daily_quests_state
+        "daily_quests_state": progress.daily_quests_state,
+        "mistakes_count": mistakes_count
     }
 def serialize_user(user: models.User):
     return {
@@ -294,7 +374,7 @@ def get_progress(
     progress = get_user_progress(db, user)
     check_and_update_battery_timer(progress, db)
     ensure_daily_quests(progress, db)
-    return get_progress_response(progress)
+    return get_progress_response(progress, db)
 
 @app.post("/progress/complete-node")
 def complete_node(
@@ -438,7 +518,105 @@ def buy_store_item(
 
     db.commit()
     db.refresh(progress)
-    return get_progress_response(progress)
+    return get_progress_response(progress, db)
+
+@app.get("/api/debug/mistakes")
+@app.get("/debug/mistakes")
+def get_user_mistakes(
+    user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    user_id = f"user_{user.id}" if user else "default_user"
+    ensure_seed_mistakes(db, user_id)
+    items = db.query(models.UserMistake).filter(
+        models.UserMistake.user_id == user_id,
+        models.UserMistake.status == "pending"
+    ).order_by(models.UserMistake.created_at.desc()).all()
+    return {
+        "mistakes": [serialize_mistake(m) for m in items],
+        "count": len(items)
+    }
+
+@app.post("/api/debug/mistakes")
+@app.post("/debug/mistakes")
+def create_user_mistake(
+    req: CreateMistakeRequest,
+    user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    user_id = f"user_{user.id}" if user else "default_user"
+    mistake = models.UserMistake(
+        user_id=user_id,
+        node_id=req.node_id or "",
+        lesson_title=req.lesson_title or "",
+        question_title=req.question_title or "",
+        code_snippet=req.code_snippet or "",
+        user_answer=req.user_answer or "",
+        correct_answer=req.correct_answer or "",
+        explanation=req.explanation or "",
+        status="pending"
+    )
+    db.add(mistake)
+    db.commit()
+    db.refresh(mistake)
+    return serialize_mistake(mistake)
+
+@app.post("/api/debug/mistakes/{mistake_id}/resolve")
+@app.post("/debug/mistakes/{mistake_id}/resolve")
+def resolve_user_mistake(
+    mistake_id: int,
+    user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    user_id = f"user_{user.id}" if user else "default_user"
+    mistake = db.query(models.UserMistake).filter(
+        models.UserMistake.id == mistake_id,
+        models.UserMistake.user_id == user_id
+    ).first()
+    if not mistake:
+        raise HTTPException(status_code=404, detail="Mistake not found")
+    mistake.status = "resolved"
+    progress = get_user_progress(db, user)
+    progress.bytes += 10
+    progress.totalXP += 10
+    db.commit()
+    db.refresh(mistake)
+    db.refresh(progress)
+    remaining_count = db.query(models.UserMistake).filter(
+        models.UserMistake.user_id == user_id,
+        models.UserMistake.status == "pending"
+    ).count()
+    return {
+        "success": True,
+        "resolved_id": mistake_id,
+        "remaining_count": remaining_count,
+        "reward_bytes": 10,
+        "progress": get_progress_response(progress, db)
+    }
+
+@app.get("/api/debug/stats")
+@app.get("/debug/stats")
+def get_debug_stats(
+    user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    user_id = f"user_{user.id}" if user else "default_user"
+    ensure_seed_mistakes(db, user_id)
+    pending_count = db.query(models.UserMistake).filter(
+        models.UserMistake.user_id == user_id,
+        models.UserMistake.status == "pending"
+    ).count()
+    resolved_count = db.query(models.UserMistake).filter(
+        models.UserMistake.user_id == user_id,
+        models.UserMistake.status == "resolved"
+    ).count()
+    return {
+        "pending_mistakes_count": pending_count,
+        "resolved_mistakes_count": resolved_count,
+        "reading_exercises_count": 8,
+        "refactor_exercises_count": 6,
+        "stories_count": 4
+    }
 
 if __name__ == "__main__":
     import uvicorn
