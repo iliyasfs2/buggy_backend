@@ -84,6 +84,9 @@ class ByteTransactionRequest(BaseModel):
 class ClaimQuestRequest(BaseModel):
     questId: str
 
+class StoreBuyRequest(BaseModel):
+    item_id: str
+
 def get_user_progress(db: Session, user: Optional[models.User] = None):
     user_id = f"user_{user.id}" if user else "default_user"
     progress = db.query(models.UserProgress).filter(models.UserProgress.user_id == user_id).first()
@@ -122,6 +125,7 @@ def get_progress_response(progress):
         "streak": progress.streak,
         "battery": progress.battery,
         "bytes": progress.bytes,
+        "streak_freeze": getattr(progress, "streak_freeze", 0) or 0,
         "active_course": progress.active_course,
         "completed_nodes": progress.completed_nodes,
         "unlocked_nodes": progress.unlocked_nodes,
@@ -366,6 +370,42 @@ def claim_quest(
             break
             
     progress.daily_quests_state = quests
+    db.commit()
+    db.refresh(progress)
+    return get_progress_response(progress)
+
+@app.post("/api/store/buy")
+@app.post("/store/buy")
+def buy_store_item(
+    req: StoreBuyRequest,
+    user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    progress = get_user_progress(db, user)
+    item_id = req.item_id.strip().lower()
+
+    if item_id == "refill_battery":
+        price = 100
+        if progress.bytes < price:
+            raise HTTPException(status_code=400, detail="Insufficient Bytes")
+        if progress.battery >= 5:
+            raise HTTPException(status_code=400, detail="Battery is already full")
+        progress.bytes -= price
+        progress.battery = 5
+
+    elif item_id == "streak_freeze":
+        price = 200
+        current_freezes = progress.streak_freeze or 0
+        if progress.bytes < price:
+            raise HTTPException(status_code=400, detail="Insufficient Bytes")
+        if current_freezes >= 2:
+            raise HTTPException(status_code=400, detail="Streak Freeze capacity reached (maximum 2)")
+        progress.bytes -= price
+        progress.streak_freeze = current_freezes + 1
+
+    else:
+        raise HTTPException(status_code=400, detail="Invalid store item")
+
     db.commit()
     db.refresh(progress)
     return get_progress_response(progress)

@@ -62,6 +62,7 @@ class UserProgress(Base):
     streak = Column(Integer, default=0)
     battery = Column(Integer, default=5)
     bytes = Column(Integer, default=100)
+    streak_freeze = Column(Integer, default=0)
     active_course = Column(String, default="javascript")
     daily_quests_date = Column(String, default="")
     _daily_quests_state = Column("daily_quests_state", Text, default='[]')
