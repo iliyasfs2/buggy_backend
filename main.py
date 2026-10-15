@@ -287,6 +287,13 @@ class UpdateAvatarRequest(BaseModel):
     avatar: Optional[dict] = None
     avatar_config: Optional[dict] = None
 
+class UpdateUsernameRequest(BaseModel):
+    username: str
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
 @app.post("/auth/register")
 def register(req: RegisterRequest, db: Session = Depends(get_db)):
     clean_username = req.username.strip()
@@ -393,6 +400,53 @@ def update_avatar_config(
     db.commit()
     db.refresh(user)
     return {"user": serialize_user(user), "avatar_config": user.avatar_config}
+
+@app.put("/api/user/username")
+@app.put("/user/username")
+@app.post("/api/user/username")
+@app.post("/user/username")
+def update_username(
+    req: UpdateUsernameRequest,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    clean = req.username.strip()
+    if len(clean) < 3:
+        raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
+    if len(clean) > 30:
+        raise HTTPException(status_code=400, detail="Username must be at most 30 characters")
+
+    existing = db.query(models.User).filter(
+        models.User.username.ilike(clean),
+        models.User.id != user.id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="This username is already taken")
+
+    user.username = clean
+    db.commit()
+    db.refresh(user)
+    return {"success": True, "user": serialize_user(user)}
+
+@app.put("/api/user/password")
+@app.put("/user/password")
+@app.post("/api/user/password")
+@app.post("/user/password")
+def change_password(
+    req: ChangePasswordRequest,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not auth.verify_password(req.current_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+
+    user.hashed_password = auth.hash_password(req.new_password)
+    db.commit()
+    db.refresh(user)
+    return {"success": True, "message": "Password changed successfully"}
 
 @app.get("/progress")
 @app.get("/api/user/progress")
