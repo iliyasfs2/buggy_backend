@@ -811,26 +811,47 @@ def get_leaderboard(
     user_avatar = user.avatar_config if user else models.DEFAULT_AVATAR_CONFIG.copy()
 
     participants = []
-    
-    current_entry = {
-        "id": user_id_str,
-        "username": user_name,
-        "season_xp": user_season_xp,
-        "streak": user_streak,
-        "avatar_config": user_avatar,
-        "is_current_user": True,
-    }
-    participants.append(current_entry)
+    seen_usernames = set()
+
+    all_users = db.query(models.User).all()
+    for u in all_users:
+        u_prog = db.query(models.UserProgress).filter(models.UserProgress.user_id == f"user_{u.id}").first()
+        is_curr = bool(user and u.id == user.id)
+        u_season_xp = (getattr(u_prog, "season_xp", 0) or 0) if u_prog else 0
+        u_streak = (u_prog.streak or 0) if u_prog else 0
+        u_avatar = u.avatar_config or models.DEFAULT_AVATAR_CONFIG.copy()
+        participants.append({
+            "id": f"user_{u.id}",
+            "username": u.username,
+            "season_xp": u_season_xp,
+            "streak": u_streak,
+            "avatar_config": u_avatar,
+            "is_current_user": is_curr,
+        })
+        seen_usernames.add(u.username.lower())
+
+    if not user:
+        guest_prog = get_user_progress(db, None)
+        participants.append({
+            "id": "guest",
+            "username": "You",
+            "season_xp": getattr(guest_prog, "season_xp", 0) or 0,
+            "streak": guest_prog.streak or 0,
+            "avatar_config": models.DEFAULT_AVATAR_CONFIG.copy(),
+            "is_current_user": True,
+        })
+        seen_usernames.add("you")
 
     for peer in DEFAULT_LEAGUE_PEERS:
-        participants.append({
-            "id": peer["id"],
-            "username": peer["username"],
-            "season_xp": peer["base_xp"],
-            "streak": peer["streak"],
-            "avatar_config": peer["avatar_config"],
-            "is_current_user": False,
-        })
+        if peer["username"].lower() not in seen_usernames:
+            participants.append({
+                "id": peer["id"],
+                "username": peer["username"],
+                "season_xp": peer["base_xp"],
+                "streak": peer["streak"],
+                "avatar_config": peer["avatar_config"],
+                "is_current_user": False,
+            })
 
     participants.sort(key=lambda p: (p["season_xp"], p["streak"]), reverse=True)
 
