@@ -59,6 +59,7 @@ class UserProgress(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(String, unique=True, index=True, default="default_user")
     totalXP = Column(Integer, default=0)
+    season_xp = Column(Integer, default=0)
     streak = Column(Integer, default=0)
     battery = Column(Integer, default=5)
     bytes = Column(Integer, default=100)
@@ -111,3 +112,15 @@ class UserMistake(Base):
     status = Column(String, default="pending")
     resolved = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class SeasonInfo(Base):
+    __tablename__ = "season_info"
+
+    id = Column(Integer, primary_key=True, index=True)
+    season_number = Column(Integer, default=1)
+    title = Column(String, default="Season 1: Obsidian League")
+    description = Column(String, default="Special Byte rewards awarded to the Top 3 coders at season end!")
+    end_time = Column(DateTime, nullable=False)
+    reward_first = Column(Integer, default=200)
+    reward_second = Column(Integer, default=100)
+    reward_third = Column(Integer, default=50)
