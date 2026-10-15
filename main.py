@@ -290,6 +290,9 @@ class UpdateAvatarRequest(BaseModel):
 class UpdateUsernameRequest(BaseModel):
     username: str
 
+class UpdateEmailRequest(BaseModel):
+    email: str
+
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
@@ -424,6 +427,33 @@ def update_username(
         raise HTTPException(status_code=400, detail="This username is already taken")
 
     user.username = clean
+    db.commit()
+    db.refresh(user)
+    return {"success": True, "user": serialize_user(user)}
+
+@app.put("/api/user/email")
+@app.put("/user/email")
+@app.post("/api/user/email")
+@app.post("/user/email")
+def update_email(
+    req: UpdateEmailRequest,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    clean = req.email.strip().lower()
+    if "@" not in clean or "." not in clean:
+        raise HTTPException(status_code=400, detail="Please enter a valid email address")
+    if len(clean) > 100:
+        raise HTTPException(status_code=400, detail="Email is too long")
+
+    existing = db.query(models.User).filter(
+        models.User.email == clean,
+        models.User.id != user.id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="This email is already in use")
+
+    user.email = clean
     db.commit()
     db.refresh(user)
     return {"success": True, "user": serialize_user(user)}
