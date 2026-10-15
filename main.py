@@ -74,9 +74,11 @@ class LoginRequest(BaseModel):
 
 class CompleteNodeRequest(BaseModel):
     nodeId: str
-    earnedXp: int
+    earnedXp: int = 0
+    earnedBytes: Optional[int] = 0
     nextNodeId: Optional[str] = None
     flawless: bool = False
+    mode: Optional[str] = None
 
 class SwitchCourseRequest(BaseModel):
     courseId: str
@@ -409,12 +411,27 @@ def complete_node(
 ):
     progress = get_user_progress(db, user)
     sync_user_battery(progress, db)
+
     if req.earnedXp:
         progress.totalXP += req.earnedXp
-    if req.nodeId and req.nodeId not in completed:
-        completed.append(req.nodeId)
-    if req.nextNodeId and req.nextNodeId not in unlocked:
-        unlocked.append(req.nextNodeId)
+
+    if req.earnedBytes:
+        progress.bytes += req.earnedBytes
+    elif req.mode == "debug_stories":
+        progress.bytes += 30
+    elif req.mode == "debug_tracing":
+        progress.bytes += 5
+    elif not req.mode or not req.mode.startswith("debug"):
+        progress.bytes += 10
+
+    completed = list(progress.completed_nodes or [])
+    unlocked = list(progress.unlocked_nodes or [])
+
+    if req.nodeId and not (req.mode and req.mode.startswith("debug")):
+        if req.nodeId not in completed:
+            completed.append(req.nodeId)
+        if req.nextNodeId and req.nextNodeId not in unlocked:
+            unlocked.append(req.nextNodeId)
 
     progress.completed_nodes = completed
     progress.unlocked_nodes = unlocked
