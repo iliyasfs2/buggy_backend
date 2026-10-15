@@ -481,6 +481,20 @@ def recharge_battery(
     db.refresh(progress)
     return get_progress_response(progress, db)
 
+@app.post("/progress/simulate-new-day")
+@app.post("/api/dev/simulate-new-day")
+def simulate_new_day(
+    user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    progress = get_user_progress(db, user)
+    progress.last_active_date = date.today() - timedelta(days=1)
+    progress.daily_quests_date = (date.today() - timedelta(days=1)).isoformat()
+    progress.battery = 5
+    db.commit()
+    db.refresh(progress)
+    return get_progress_response(progress, db)
+
 @app.post("/bytes/transaction")
 def bytes_transaction(
     req: ByteTransactionRequest,
