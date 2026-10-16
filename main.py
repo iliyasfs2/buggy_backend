@@ -825,8 +825,8 @@ def ensure_season(db: Session) -> models.SeasonInfo:
     if not season:
         season = models.SeasonInfo(
             season_number=1,
-            title="Current Build Season",
-            description="Weekly 7-day competitive build season",
+            title="Current Compile Season",
+            description="Weekly 7-day competitive compile season",
             end_time=now + timedelta(days=6, hours=12),
             reward_first=200,
             reward_second=100,
@@ -839,9 +839,9 @@ def ensure_season(db: Session) -> models.SeasonInfo:
 
     if now >= season.end_time:
         reward_and_reset_season(db, season)
-    elif (season.end_time - now) > timedelta(days=7):
+    elif (season.end_time - now) > timedelta(days=7) or season.title != "Current Compile Season":
         season.end_time = now + timedelta(days=6, hours=12)
-        season.title = "Current Build Season"
+        season.title = "Current Compile Season"
         db.commit()
         db.refresh(season)
 
@@ -861,7 +861,7 @@ def reward_and_reset_season(db: Session, season: models.SeasonInfo):
         p.season_xp = 0
 
     season.season_number = (season.season_number or 1) + 1
-    season.title = "Current Build Season"
+    season.title = "Current Compile Season"
     season.end_time = now + timedelta(days=7)
     db.commit()
     db.refresh(season)
