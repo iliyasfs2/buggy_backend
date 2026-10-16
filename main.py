@@ -653,10 +653,10 @@ def buy_store_item(
         current_freezes = progress.streak_freeze or 0
         if progress.bytes < price:
             raise HTTPException(status_code=400, detail="Insufficient Bytes")
-        if current_freezes >= 2:
-            raise HTTPException(status_code=400, detail="Streak Freeze capacity reached (maximum 2)")
+        if current_freezes >= 1:
+            raise HTTPException(status_code=400, detail="Streak Freeze is already active on your account")
         progress.bytes -= price
-        progress.streak_freeze = current_freezes + 1
+        progress.streak_freeze = 1
 
     else:
         raise HTTPException(status_code=400, detail="Invalid store item")
