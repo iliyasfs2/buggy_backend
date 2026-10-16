@@ -950,6 +950,8 @@ def compute_leaderboard_rankings(db: Session, user: Optional[models.User]):
     return ranked_list, user_rank
 
 def resolve_target_user(user_id: str, current_user: Optional[models.User], db: Session):
+    import urllib.parse
+    user_id = urllib.parse.unquote(user_id)
     current_uid_str = f"user_{current_user.id}" if current_user else "guest"
     target_id_str = user_id
     if user_id in ("current", "me", "you"):
@@ -969,6 +971,20 @@ def resolve_target_user(user_id: str, current_user: Optional[models.User], db: S
         target_id_str = f"user_{target_id_str}"
     elif target_id_str.startswith("peer_"):
         peer_data = next((p for p in DEFAULT_LEAGUE_PEERS if p["id"] == target_id_str), None)
+
+    if not target_user and not peer_data and target_id_str != "guest":
+        clean_name = target_id_str.lstrip("@").strip()
+        target_user = db.query(models.User).filter(models.User.username.ilike(clean_name)).first()
+        if target_user:
+            target_id_str = f"user_{target_user.id}"
+        else:
+            normalized_name = clean_name.lower().replace("_", " ")
+            peer_data = next(
+                (p for p in DEFAULT_LEAGUE_PEERS if p["username"].lower() == clean_name.lower() or p["username"].lower() == normalized_name),
+                None
+            )
+            if peer_data:
+                target_id_str = peer_data["id"]
 
     return target_user, peer_data, target_id_str
 
@@ -1195,6 +1211,102 @@ def unfollow_user(
         "success": True,
         "is_following": False,
         "followers_count": base_followers + db_followers
+    }
+
+@app.get("/api/users/{user_id}/connections")
+@app.get("/users/{user_id}/connections")
+def get_user_connections(
+    user_id: str,
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    target_user, peer_data, target_id_str = resolve_target_user(user_id, current_user, db)
+    if not target_user and not peer_data and target_id_str != "guest":
+        raise HTTPException(status_code=404, detail="User not found")
+
+    ranked_list, _ = compute_leaderboard_rankings(db, current_user)
+    ranked_map = {r["id"]: r for r in ranked_list}
+
+    def format_conn_user(uid: str):
+        if uid in ranked_map:
+            r = ranked_map[uid]
+            return {
+                "id": r["id"],
+                "username": r["username"],
+                "avatar_config": r["avatar_config"],
+                "total_xp": r["season_xp"] * 4,
+                "season_xp": r["season_xp"],
+                "rank": r["rank"],
+                "rank_title": "Senior" if r["rank"] == 1 else "Mid-Level" if r["rank"] == 2 else "Junior" if r["rank"] == 3 else None
+            }
+        if uid.startswith("user_"):
+            try:
+                u_id_int = int(uid.replace("user_", ""))
+                u = db.query(models.User).filter(models.User.id == u_id_int).first()
+                if u:
+                    prog = db.query(models.UserProgress).filter(models.UserProgress.user_id == uid).first()
+                    return {
+                        "id": uid,
+                        "username": u.username,
+                        "avatar_config": u.avatar_config,
+                        "total_xp": prog.totalXP if prog else 0,
+                        "season_xp": (getattr(prog, "season_xp", 0) or 0) if prog else 0,
+                        "rank": 20,
+                        "rank_title": None
+                    }
+            except Exception:
+                pass
+        return None
+
+    db_follower_records = db.query(models.UserFollow).filter(models.UserFollow.following_id == target_id_str).all()
+    followers = []
+    seen_follower_ids = set()
+    for rec in db_follower_records:
+        user_obj = format_conn_user(rec.follower_id)
+        if user_obj and user_obj["id"] not in seen_follower_ids:
+            followers.append(user_obj)
+            seen_follower_ids.add(user_obj["id"])
+
+    db_following_records = db.query(models.UserFollow).filter(models.UserFollow.follower_id == target_id_str).all()
+    following = []
+    seen_following_ids = set()
+    for rec in db_following_records:
+        user_obj = format_conn_user(rec.following_id)
+        if user_obj and user_obj["id"] not in seen_following_ids:
+            following.append(user_obj)
+            seen_following_ids.add(user_obj["id"])
+
+    for peer in DEFAULT_LEAGUE_PEERS[:6]:
+        if peer["id"] != target_id_str:
+            if len(followers) < 4 and peer["id"] not in seen_follower_ids:
+                followers.append({
+                    "id": peer["id"],
+                    "username": peer["username"],
+                    "avatar_config": peer["avatar_config"],
+                    "total_xp": peer["base_xp"] * 4,
+                    "season_xp": peer["base_xp"],
+                    "rank": ranked_map.get(peer["id"], {}).get("rank", 5),
+                    "rank_title": ranked_map.get(peer["id"], {}).get("coder_title")
+                })
+                seen_follower_ids.add(peer["id"])
+
+    for peer in DEFAULT_LEAGUE_PEERS[3:9]:
+        if peer["id"] != target_id_str:
+            if len(following) < 5 and peer["id"] not in seen_following_ids:
+                following.append({
+                    "id": peer["id"],
+                    "username": peer["username"],
+                    "avatar_config": peer["avatar_config"],
+                    "total_xp": peer["base_xp"] * 4,
+                    "season_xp": peer["base_xp"],
+                    "rank": ranked_map.get(peer["id"], {}).get("rank", 8),
+                    "rank_title": ranked_map.get(peer["id"], {}).get("coder_title")
+                })
+                seen_following_ids.add(peer["id"])
+
+    return {
+        "followers": followers,
+        "following": following
     }
 
 
