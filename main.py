@@ -951,10 +951,10 @@ def compute_leaderboard_rankings(db: Session, user: Optional[models.User]):
 
 def resolve_target_user(user_id: str, current_user: Optional[models.User], db: Session):
     import urllib.parse
-    user_id = urllib.parse.unquote(user_id)
+    user_id = urllib.parse.unquote(urllib.parse.unquote(user_id)).strip()
     current_uid_str = f"user_{current_user.id}" if current_user else "guest"
     target_id_str = user_id
-    if user_id in ("current", "me", "you"):
+    if user_id.lower() in ("current", "me", "you"):
         target_id_str = current_uid_str
 
     target_user = None
@@ -1053,6 +1053,10 @@ def get_user_profile(
     target_ranked = next((r for r in ranked_list if r["id"] == target_id_str), None)
     if not target_ranked and target_user:
         target_ranked = next((r for r in ranked_list if r["username"].lower() == target_user.username.lower()), None)
+    if not target_ranked and peer_data:
+        target_ranked = next((r for r in ranked_list if r["username"].lower() == peer_data["username"].lower()), None)
+    if not target_ranked and (target_id_str == "guest" or user_id.lower() in ("current", "me", "you")):
+        target_ranked = next((r for r in ranked_list if r["is_current_user"]), None)
 
     current_rank = target_ranked["rank"] if target_ranked else user_rank
     rank_title = None
@@ -1124,7 +1128,7 @@ def get_user_profile(
             "is_me": False,
         }
 
-    if target_id_str == "guest" or user_id in ("current", "me", "you"):
+    if target_id_str == "guest" or user_id.lower() in ("current", "me", "you"):
         guest_prog = get_user_progress(db, current_user)
         return {
             "id": "current",
