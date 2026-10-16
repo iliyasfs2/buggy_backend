@@ -961,7 +961,7 @@ def get_leaderboard(
         if p["is_current_user"]:
             user_rank = index
 
-    top_count = 25
+    top_count = 20
     top_entries = ranked_list[:top_count]
     is_user_in_top = user_rank <= top_count
 
