@@ -651,6 +651,8 @@ def buy_store_item(
     elif item_id == "streak_freeze":
         price = 150
         current_freezes = progress.streak_freeze or 0
+        if current_freezes >= 2:
+            raise HTTPException(status_code=400, detail="Monthly limit of 2 Streak Freezes reached")
         if progress.bytes < price:
             raise HTTPException(status_code=400, detail="Insufficient Bytes")
         progress.bytes -= price
