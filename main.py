@@ -825,9 +825,9 @@ def ensure_season(db: Session) -> models.SeasonInfo:
     if not season:
         season = models.SeasonInfo(
             season_number=1,
-            title="Season 1: Obsidian League",
-            description="Special Byte rewards awarded to the Top 3 coders at season end!",
-            end_time=now + timedelta(days=12, hours=8, minutes=14),
+            title="Current Build Season",
+            description="Weekly 7-day competitive build season",
+            end_time=now + timedelta(days=6, hours=12),
             reward_first=200,
             reward_second=100,
             reward_third=50
@@ -839,6 +839,11 @@ def ensure_season(db: Session) -> models.SeasonInfo:
 
     if now >= season.end_time:
         reward_and_reset_season(db, season)
+    elif (season.end_time - now) > timedelta(days=7):
+        season.end_time = now + timedelta(days=6, hours=12)
+        season.title = "Current Build Season"
+        db.commit()
+        db.refresh(season)
 
     return season
 
@@ -856,9 +861,8 @@ def reward_and_reset_season(db: Session, season: models.SeasonInfo):
         p.season_xp = 0
 
     season.season_number = (season.season_number or 1) + 1
-    league_name = LEAGUE_TITLES[(season.season_number - 1) % len(LEAGUE_TITLES)]
-    season.title = f"Season {season.season_number}: {league_name}"
-    season.end_time = now + timedelta(days=14)
+    season.title = "Current Build Season"
+    season.end_time = now + timedelta(days=7)
     db.commit()
     db.refresh(season)
 
