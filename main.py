@@ -883,21 +883,7 @@ def get_coder_title_for_rank(rank: int) -> str:
         return "Async Wizard"
     return "Binary Overlord"
 
-@app.get("/api/leaderboard")
-@app.get("/leaderboard")
-def get_leaderboard(
-    user: Optional[models.User] = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
-):
-    season = ensure_season(db)
-    user_prog = get_user_progress(db, user)
-    user_season_xp = getattr(user_prog, "season_xp", 0) or 0
-    user_total_xp = user_prog.totalXP or 0
-    user_streak = user_prog.streak or 0
-    user_id_str = f"user_{user.id}" if user else "guest"
-    user_name = user.username if user else "You"
-    user_avatar = user.avatar_config if user else models.DEFAULT_AVATAR_CONFIG.copy()
-
+def compute_leaderboard_rankings(db: Session, user: Optional[models.User]):
     participants = []
     seen_usernames = set()
 
@@ -961,6 +947,48 @@ def get_leaderboard(
         if p["is_current_user"]:
             user_rank = index
 
+    return ranked_list, user_rank
+
+def resolve_target_user(user_id: str, current_user: Optional[models.User], db: Session):
+    current_uid_str = f"user_{current_user.id}" if current_user else "guest"
+    target_id_str = user_id
+    if user_id in ("current", "me", "you"):
+        target_id_str = current_uid_str
+
+    target_user = None
+    peer_data = None
+
+    if target_id_str.startswith("user_"):
+        try:
+            uid_int = int(target_id_str.replace("user_", ""))
+            target_user = db.query(models.User).filter(models.User.id == uid_int).first()
+        except Exception:
+            target_user = None
+    elif target_id_str.isdigit():
+        target_user = db.query(models.User).filter(models.User.id == int(target_id_str)).first()
+        target_id_str = f"user_{target_id_str}"
+    elif target_id_str.startswith("peer_"):
+        peer_data = next((p for p in DEFAULT_LEAGUE_PEERS if p["id"] == target_id_str), None)
+
+    return target_user, peer_data, target_id_str
+
+@app.get("/api/leaderboard")
+@app.get("/leaderboard")
+def get_leaderboard(
+    user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    season = ensure_season(db)
+    user_prog = get_user_progress(db, user)
+    user_season_xp = getattr(user_prog, "season_xp", 0) or 0
+    user_total_xp = user_prog.totalXP or 0
+    user_streak = user_prog.streak or 0
+    user_id_str = f"user_{user.id}" if user else "guest"
+    user_name = user.username if user else "You"
+    user_avatar = user.avatar_config if user else models.DEFAULT_AVATAR_CONFIG.copy()
+
+    ranked_list, user_rank = compute_leaderboard_rankings(db, user)
+
     top_count = 20
     top_entries = ranked_list[:top_count]
     is_user_in_top = user_rank <= top_count
@@ -994,6 +1022,181 @@ def get_leaderboard(
         },
         "leaderboard": top_entries,
     }
+
+@app.get("/api/users/{user_id}/profile")
+@app.get("/users/{user_id}/profile")
+def get_user_profile(
+    user_id: str,
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    current_uid_str = f"user_{current_user.id}" if current_user else "guest"
+    target_user, peer_data, target_id_str = resolve_target_user(user_id, current_user, db)
+
+    ranked_list, user_rank = compute_leaderboard_rankings(db, current_user)
+    target_ranked = next((r for r in ranked_list if r["id"] == target_id_str), None)
+    if not target_ranked and target_user:
+        target_ranked = next((r for r in ranked_list if r["username"].lower() == target_user.username.lower()), None)
+
+    current_rank = target_ranked["rank"] if target_ranked else user_rank
+    rank_title = None
+    if current_rank == 1:
+        rank_title = "Senior"
+    elif current_rank == 2:
+        rank_title = "Mid-Level"
+    elif current_rank == 3:
+        rank_title = "Junior"
+
+    is_me = (current_uid_str == target_id_str)
+    if current_user and target_user and current_user.id == target_user.id:
+        is_me = True
+
+    is_following = False
+    if not is_me:
+        follow_record = db.query(models.UserFollow).filter(
+            models.UserFollow.follower_id == current_uid_str,
+            models.UserFollow.following_id == target_id_str
+        ).first()
+        is_following = bool(follow_record)
+
+    db_followers = db.query(models.UserFollow).filter(models.UserFollow.following_id == target_id_str).count()
+    db_following = db.query(models.UserFollow).filter(models.UserFollow.follower_id == target_id_str).count()
+
+    if target_user:
+        prog = db.query(models.UserProgress).filter(models.UserProgress.user_id == f"user_{target_user.id}").first()
+        joined_at = target_user.created_at.strftime("%Y-%m-%d") if target_user.created_at else "2026-09-15"
+        streak = (prog.streak or 0) if prog else 0
+        total_xp = (prog.totalXP or 0) if prog else 0
+        season_xp = (getattr(prog, "season_xp", 0) or 0) if prog else 0
+        avatar_config = target_user.avatar_config
+
+        return {
+            "id": f"user_{target_user.id}",
+            "username": target_user.username,
+            "avatar_config": avatar_config,
+            "joined_at": joined_at,
+            "streak": streak,
+            "total_xp": total_xp,
+            "season_xp": season_xp,
+            "current_rank": current_rank,
+            "rank_title": rank_title,
+            "followers_count": db_followers,
+            "following_count": db_following,
+            "is_following": is_following,
+            "is_me": is_me,
+        }
+
+    if peer_data:
+        peer_num = int(peer_data["id"].split("_")[1]) if "_" in peer_data["id"] else 1
+        base_followers = 20 + peer_num * 2
+        base_following = 12 + peer_num
+        joined_at = (datetime(2026, 8, 1) + timedelta(days=peer_num * 3)).strftime("%Y-%m-%d")
+
+        return {
+            "id": peer_data["id"],
+            "username": peer_data["username"],
+            "avatar_config": peer_data["avatar_config"],
+            "joined_at": joined_at,
+            "streak": peer_data["streak"],
+            "total_xp": peer_data["base_xp"] * 4,
+            "season_xp": peer_data["base_xp"],
+            "current_rank": current_rank,
+            "rank_title": rank_title,
+            "followers_count": base_followers + db_followers,
+            "following_count": base_following + db_following,
+            "is_following": is_following,
+            "is_me": False,
+        }
+
+    if target_id_str == "guest" or user_id in ("current", "me", "you"):
+        guest_prog = get_user_progress(db, current_user)
+        return {
+            "id": "current",
+            "username": current_user.username if current_user else "You",
+            "avatar_config": (current_user.avatar_config if current_user else models.DEFAULT_AVATAR_CONFIG.copy()),
+            "joined_at": (current_user.created_at.strftime("%Y-%m-%d") if (current_user and current_user.created_at) else "2026-10-01"),
+            "streak": guest_prog.streak or 0,
+            "total_xp": guest_prog.totalXP or 0,
+            "season_xp": getattr(guest_prog, "season_xp", 0) or 0,
+            "current_rank": current_rank,
+            "rank_title": rank_title,
+            "followers_count": db_followers,
+            "following_count": db_following,
+            "is_following": False,
+            "is_me": True,
+        }
+
+    raise HTTPException(status_code=404, detail="User not found")
+
+@app.post("/api/users/{user_id}/follow")
+@app.post("/users/{user_id}/follow")
+def follow_user(
+    user_id: str,
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    current_uid_str = f"user_{current_user.id}" if current_user else "guest"
+    target_user, peer_data, target_id_str = resolve_target_user(user_id, current_user, db)
+
+    if not target_user and not peer_data and target_id_str != "guest":
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if current_uid_str == target_id_str:
+        raise HTTPException(status_code=400, detail="Cannot follow yourself")
+
+    existing = db.query(models.UserFollow).filter(
+        models.UserFollow.follower_id == current_uid_str,
+        models.UserFollow.following_id == target_id_str
+    ).first()
+
+    if not existing:
+        follow_record = models.UserFollow(follower_id=current_uid_str, following_id=target_id_str)
+        db.add(follow_record)
+        db.commit()
+
+    base_followers = 0
+    if peer_data:
+        peer_num = int(peer_data["id"].split("_")[1]) if "_" in peer_data["id"] else 1
+        base_followers = 20 + peer_num * 2
+    db_followers = db.query(models.UserFollow).filter(models.UserFollow.following_id == target_id_str).count()
+
+    return {
+        "success": True,
+        "is_following": True,
+        "followers_count": base_followers + db_followers
+    }
+
+@app.delete("/api/users/{user_id}/follow")
+@app.delete("/users/{user_id}/follow")
+def unfollow_user(
+    user_id: str,
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    current_uid_str = f"user_{current_user.id}" if current_user else "guest"
+    target_user, peer_data, target_id_str = resolve_target_user(user_id, current_user, db)
+
+    if not target_user and not peer_data and target_id_str != "guest":
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db.query(models.UserFollow).filter(
+        models.UserFollow.follower_id == current_uid_str,
+        models.UserFollow.following_id == target_id_str
+    ).delete()
+    db.commit()
+
+    base_followers = 0
+    if peer_data:
+        peer_num = int(peer_data["id"].split("_")[1]) if "_" in peer_data["id"] else 1
+        base_followers = 20 + peer_num * 2
+    db_followers = db.query(models.UserFollow).filter(models.UserFollow.following_id == target_id_str).count()
+
+    return {
+        "success": True,
+        "is_following": False,
+        "followers_count": base_followers + db_followers
+    }
+
 
 @app.post("/api/dev/simulate-season-end")
 @app.post("/dev/simulate-season-end")

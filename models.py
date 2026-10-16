@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, Date
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, Date, UniqueConstraint, CheckConstraint
 from database import Base
 import json
 from datetime import datetime
@@ -124,3 +124,17 @@ class SeasonInfo(Base):
     reward_first = Column(Integer, default=200)
     reward_second = Column(Integer, default=100)
     reward_third = Column(Integer, default=50)
+
+class UserFollow(Base):
+    __tablename__ = "user_follows"
+
+    id = Column(Integer, primary_key=True, index=True)
+    follower_id = Column(String, index=True, nullable=False)
+    following_id = Column(String, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("follower_id", "following_id", name="uq_user_follows"),
+        CheckConstraint("follower_id != following_id", name="ck_user_not_self_follow"),
+    )
+
