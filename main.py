@@ -791,34 +791,6 @@ LEAGUE_TITLES = [
     "Grandmaster League",
 ]
 
-DEFAULT_LEAGUE_PEERS = [
-    {"id": "peer_1", "username": "Alex Rivera", "base_xp": 840, "streak": 14, "avatar_config": {"skin_color": "#FCD34D", "hair_style": "short_wavy", "hair_color": "#1E293B", "eye_style": "round", "expression": "happy", "accessory": "yellow_glasses", "shirt_color": "#0284C7", "bg_color": "#0F172A"}},
-    {"id": "peer_2", "username": "Sarah Chen", "base_xp": 720, "streak": 11, "avatar_config": {"skin_color": "#FBBF24", "hair_style": "long_straight", "hair_color": "#0F172A", "eye_style": "cat", "expression": "confident", "accessory": "headband", "shirt_color": "#8B5CF6", "bg_color": "#18181B"}},
-    {"id": "peer_3", "username": "Marcus Vance", "base_xp": 610, "streak": 9, "avatar_config": {"skin_color": "#FDE68A", "hair_style": "buzz", "hair_color": "#78350F", "eye_style": "focused", "expression": "smirk", "accessory": "none", "shirt_color": "#EF4444", "bg_color": "#111827"}},
-    {"id": "peer_4", "username": "Elena Rostova", "base_xp": 490, "streak": 8, "avatar_config": {"skin_color": "#FCD34D", "hair_style": "curly_bob", "hair_color": "#B45309", "eye_style": "round", "expression": "happy", "accessory": "headphones", "shirt_color": "#10B981", "bg_color": "#0F172A"}},
-    {"id": "peer_5", "username": "David Kim", "base_xp": 410, "streak": 7, "avatar_config": {"skin_color": "#FBBF24", "hair_style": "fade", "hair_color": "#1E293B", "eye_style": "focused", "expression": "calm", "accessory": "black_glasses", "shirt_color": "#3B82F6", "bg_color": "#1E1B4B"}},
-    {"id": "peer_6", "username": "Maya Patel", "base_xp": 360, "streak": 6, "avatar_config": {"skin_color": "#F59E0B", "hair_style": "topknot", "hair_color": "#0F172A", "eye_style": "cat", "expression": "happy", "accessory": "round_glasses", "shirt_color": "#EC4899", "bg_color": "#311042"}},
-    {"id": "peer_7", "username": "Liam O'Connor", "base_xp": 320, "streak": 5, "avatar_config": {"skin_color": "#FDE68A", "hair_style": "messy", "hair_color": "#D97706", "eye_style": "round", "expression": "confident", "accessory": "none", "shirt_color": "#F59E0B", "bg_color": "#1E293B"}},
-    {"id": "peer_8", "username": "Sofia Gomez", "base_xp": 280, "streak": 5, "avatar_config": {"skin_color": "#FBBF24", "hair_style": "braids", "hair_color": "#18181B", "eye_style": "focused", "expression": "smirk", "accessory": "earrings", "shirt_color": "#06B6D4", "bg_color": "#134E4A"}},
-    {"id": "peer_9", "username": "Kenji Sato", "base_xp": 250, "streak": 4, "avatar_config": {"skin_color": "#FCD34D", "hair_style": "side_part", "hair_color": "#1E293B", "eye_style": "focused", "expression": "calm", "accessory": "yellow_glasses", "shirt_color": "#6366F1", "bg_color": "#172554"}},
-    {"id": "peer_10", "username": "Amina Diallo", "base_xp": 220, "streak": 4, "avatar_config": {"skin_color": "#D97706", "hair_style": "afro", "hair_color": "#0F172A", "eye_style": "round", "expression": "happy", "accessory": "none", "shirt_color": "#14B8A6", "bg_color": "#042F2E"}},
-    {"id": "peer_11", "username": "Lucas Meyer", "base_xp": 200, "streak": 3, "avatar_config": {"skin_color": "#FDE68A", "hair_style": "short_wavy", "hair_color": "#78350F", "eye_style": "round", "expression": "confident", "accessory": "black_glasses", "shirt_color": "#84CC16", "bg_color": "#14532D"}},
-    {"id": "peer_12", "username": "Chloe Martin", "base_xp": 180, "streak": 3, "avatar_config": {"skin_color": "#FCD34D", "hair_style": "long_straight", "hair_color": "#451A03", "eye_style": "cat", "expression": "calm", "accessory": "headphones", "shirt_color": "#A855F7", "bg_color": "#2E1065"}},
-    {"id": "peer_13", "username": "Omar Farooq", "base_xp": 160, "streak": 3, "avatar_config": {"skin_color": "#F59E0B", "hair_style": "buzz", "hair_color": "#0F172A", "eye_style": "focused", "expression": "smirk", "accessory": "none", "shirt_color": "#F97316", "bg_color": "#431407"}},
-    {"id": "peer_14", "username": "Zoe Bennett", "base_xp": 140, "streak": 2, "avatar_config": {"skin_color": "#FBBF24", "hair_style": "curly_bob", "hair_color": "#9A3412", "eye_style": "round", "expression": "happy", "accessory": "headband", "shirt_color": "#E11D48", "bg_color": "#4C0519"}},
-    {"id": "peer_15", "username": "Vikram Singh", "base_xp": 130, "streak": 2, "avatar_config": {"skin_color": "#D97706", "hair_style": "fade", "hair_color": "#1E293B", "eye_style": "focused", "expression": "calm", "accessory": "round_glasses", "shirt_color": "#0EA5E9", "bg_color": "#082F49"}},
-    {"id": "peer_16", "username": "Emma Watson", "base_xp": 120, "streak": 2, "avatar_config": {"skin_color": "#FDE68A", "hair_style": "side_part", "hair_color": "#B45309", "eye_style": "round", "expression": "confident", "accessory": "yellow_glasses", "shirt_color": "#10B981", "bg_color": "#022C22"}},
-    {"id": "peer_17", "username": "Nils Lindholm", "base_xp": 110, "streak": 2, "avatar_config": {"skin_color": "#FCD34D", "hair_style": "short_wavy", "hair_color": "#78350F", "eye_style": "focused", "expression": "smirk", "accessory": "none", "shirt_color": "#64748B", "bg_color": "#0F172A"}},
-    {"id": "peer_18", "username": "Tanya Sharma", "base_xp": 100, "streak": 1, "avatar_config": {"skin_color": "#F59E0B", "hair_style": "long_straight", "hair_color": "#0F172A", "eye_style": "cat", "expression": "happy", "accessory": "earrings", "shirt_color": "#D946EF", "bg_color": "#3B0764"}},
-    {"id": "peer_19", "username": "Gabriel Silva", "base_xp": 90, "streak": 1, "avatar_config": {"skin_color": "#FBBF24", "hair_style": "messy", "hair_color": "#18181B", "eye_style": "round", "expression": "calm", "accessory": "black_glasses", "shirt_color": "#22C55E", "bg_color": "#052E16"}},
-    {"id": "peer_20", "username": "Hannah Schmidt", "base_xp": 80, "streak": 1, "avatar_config": {"skin_color": "#FDE68A", "hair_style": "topknot", "hair_color": "#9A3412", "eye_style": "focused", "expression": "confident", "accessory": "headphones", "shirt_color": "#EAB308", "bg_color": "#422006"}},
-    {"id": "peer_21", "username": "Taro Tanaka", "base_xp": 70, "streak": 1, "avatar_config": {"skin_color": "#FCD34D", "hair_style": "buzz", "hair_color": "#1E293B", "eye_style": "round", "expression": "smirk", "accessory": "none", "shirt_color": "#06B6D4", "bg_color": "#164E63"}},
-    {"id": "peer_22", "username": "Leila Hassan", "base_xp": 60, "streak": 1, "avatar_config": {"skin_color": "#D97706", "hair_style": "braids", "hair_color": "#0F172A", "eye_style": "focused", "expression": "happy", "accessory": "round_glasses", "shirt_color": "#F43F5E", "bg_color": "#4C0519"}},
-    {"id": "peer_23", "username": "Mateo Rossi", "base_xp": 50, "streak": 1, "avatar_config": {"skin_color": "#FBBF24", "hair_style": "fade", "hair_color": "#78350F", "eye_style": "round", "expression": "calm", "accessory": "none", "shirt_color": "#3B82F6", "bg_color": "#1E1B4B"}},
-    {"id": "peer_24", "username": "Olga Novak", "base_xp": 40, "streak": 0, "avatar_config": {"skin_color": "#FDE68A", "hair_style": "curly_bob", "hair_color": "#18181B", "eye_style": "cat", "expression": "smirk", "accessory": "yellow_glasses", "shirt_color": "#8B5CF6", "bg_color": "#2E1065"}},
-    {"id": "peer_25", "username": "Chen Wei", "base_xp": 30, "streak": 0, "avatar_config": {"skin_color": "#FCD34D", "hair_style": "side_part", "hair_color": "#0F172A", "eye_style": "focused", "expression": "happy", "accessory": "black_glasses", "shirt_color": "#10B981", "bg_color": "#064E3B"}},
-]
-
 def ensure_season(db: Session) -> models.SeasonInfo:
     season = db.query(models.SeasonInfo).first()
     now = datetime.utcnow()
@@ -826,8 +798,8 @@ def ensure_season(db: Session) -> models.SeasonInfo:
         season = models.SeasonInfo(
             season_number=1,
             title="Current Compile Season",
-            description="Weekly 7-day competitive compile season",
-            end_time=now + timedelta(days=6, hours=12),
+            description="Competitive 10-day leaderboard season",
+            end_time=now + timedelta(days=10),
             reward_first=200,
             reward_second=100,
             reward_third=50
@@ -839,8 +811,8 @@ def ensure_season(db: Session) -> models.SeasonInfo:
 
     if now >= season.end_time:
         reward_and_reset_season(db, season)
-    elif (season.end_time - now) > timedelta(days=7) or season.title != "Current Compile Season":
-        season.end_time = now + timedelta(days=6, hours=12)
+    elif (season.end_time - now) > timedelta(days=10):
+        season.end_time = now + timedelta(days=10)
         season.title = "Current Compile Season"
         db.commit()
         db.refresh(season)
@@ -862,17 +834,30 @@ def reward_and_reset_season(db: Session, season: models.SeasonInfo):
 
     season.season_number = (season.season_number or 1) + 1
     season.title = "Current Compile Season"
-    season.end_time = now + timedelta(days=7)
+    season.end_time = now + timedelta(days=10)
     db.commit()
     db.refresh(season)
 
+def get_league_for_rank(rank: int) -> str:
+    if rank <= 0:
+        return "Unranked"
+    if rank <= 3:
+        return "Grandmaster League"
+    if rank <= 10:
+        return "Emerald League"
+    if rank <= 25:
+        return "Diamond League"
+    if rank <= 50:
+        return "Ruby League"
+    return "Obsidian League"
+
 def get_coder_title_for_rank(rank: int) -> str:
     if rank == 1:
-        return "Algorithm Architect"
+        return "Senior"
     if rank == 2:
-        return "Code Virtuoso"
+        return "Mid-Level"
     if rank == 3:
-        return "Bug Slayer"
+        return "Junior"
     if rank <= 5:
         return "Fullstack Ninja"
     if rank <= 10:
@@ -916,17 +901,6 @@ def compute_leaderboard_rankings(db: Session, user: Optional[models.User]):
         })
         seen_usernames.add("you")
 
-    for peer in DEFAULT_LEAGUE_PEERS:
-        if peer["username"].lower() not in seen_usernames:
-            participants.append({
-                "id": peer["id"],
-                "username": peer["username"],
-                "season_xp": peer["base_xp"],
-                "streak": peer["streak"],
-                "avatar_config": peer["avatar_config"],
-                "is_current_user": False,
-            })
-
     participants.sort(key=lambda p: (p["season_xp"], p["streak"]), reverse=True)
 
     ranked_list = []
@@ -958,7 +932,6 @@ def resolve_target_user(user_id: str, current_user: Optional[models.User], db: S
         target_id_str = current_uid_str
 
     target_user = None
-    peer_data = None
 
     if target_id_str.startswith("user_"):
         try:
@@ -969,24 +942,16 @@ def resolve_target_user(user_id: str, current_user: Optional[models.User], db: S
     elif target_id_str.isdigit():
         target_user = db.query(models.User).filter(models.User.id == int(target_id_str)).first()
         target_id_str = f"user_{target_id_str}"
-    elif target_id_str.startswith("peer_"):
-        peer_data = next((p for p in DEFAULT_LEAGUE_PEERS if p["id"] == target_id_str), None)
 
-    if not target_user and not peer_data and target_id_str != "guest":
+    if not target_user and target_id_str != "guest":
         clean_name = target_id_str.lstrip("@").strip()
         target_user = db.query(models.User).filter(models.User.username.ilike(clean_name)).first()
+        if not target_user and "_" in clean_name:
+            target_user = db.query(models.User).filter(models.User.username.ilike(clean_name.replace("_", " "))).first()
         if target_user:
             target_id_str = f"user_{target_user.id}"
-        else:
-            normalized_name = clean_name.lower().replace("_", " ")
-            peer_data = next(
-                (p for p in DEFAULT_LEAGUE_PEERS if p["username"].lower() == clean_name.lower() or p["username"].lower() == normalized_name),
-                None
-            )
-            if peer_data:
-                target_id_str = peer_data["id"]
 
-    return target_user, peer_data, target_id_str
+    return target_user, None, target_id_str
 
 @app.get("/api/leaderboard")
 @app.get("/leaderboard")
@@ -1059,6 +1024,9 @@ def get_user_profile(
         target_ranked = next((r for r in ranked_list if r["is_current_user"]), None)
 
     current_rank = target_ranked["rank"] if target_ranked else user_rank
+    season = ensure_season(db)
+    season_days_left = max(0, int((season.end_time - datetime.utcnow()).total_seconds() // 86400))
+    league = get_league_for_rank(current_rank)
     rank_title = None
     if current_rank == 1:
         rank_title = "Senior"
@@ -1084,7 +1052,7 @@ def get_user_profile(
 
     if target_user:
         prog = db.query(models.UserProgress).filter(models.UserProgress.user_id == f"user_{target_user.id}").first()
-        joined_at = target_user.created_at.strftime("%Y-%m-%d") if target_user.created_at else "2026-09-15"
+        joined_at = target_user.created_at.strftime("%Y-%m-%d") if target_user.created_at else None
         streak = (prog.streak or 0) if prog else 0
         total_xp = (prog.totalXP or 0) if prog else 0
         season_xp = (getattr(prog, "season_xp", 0) or 0) if prog else 0
@@ -1100,32 +1068,13 @@ def get_user_profile(
             "season_xp": season_xp,
             "current_rank": current_rank,
             "rank_title": rank_title,
+            "season_number": season.season_number or 1,
+            "season_days_left": season_days_left,
+            "league": league,
             "followers_count": db_followers,
             "following_count": db_following,
             "is_following": is_following,
             "is_me": is_me,
-        }
-
-    if peer_data:
-        peer_num = int(peer_data["id"].split("_")[1]) if "_" in peer_data["id"] else 1
-        base_followers = 20 + peer_num * 2
-        base_following = 12 + peer_num
-        joined_at = (datetime(2026, 8, 1) + timedelta(days=peer_num * 3)).strftime("%Y-%m-%d")
-
-        return {
-            "id": peer_data["id"],
-            "username": peer_data["username"],
-            "avatar_config": peer_data["avatar_config"],
-            "joined_at": joined_at,
-            "streak": peer_data["streak"],
-            "total_xp": peer_data["base_xp"] * 4,
-            "season_xp": peer_data["base_xp"],
-            "current_rank": current_rank,
-            "rank_title": rank_title,
-            "followers_count": base_followers + db_followers,
-            "following_count": base_following + db_following,
-            "is_following": is_following,
-            "is_me": False,
         }
 
     if target_id_str == "guest" or user_id.lower() in ("current", "me", "you"):
@@ -1134,12 +1083,15 @@ def get_user_profile(
             "id": "current",
             "username": current_user.username if current_user else "You",
             "avatar_config": (current_user.avatar_config if current_user else models.DEFAULT_AVATAR_CONFIG.copy()),
-            "joined_at": (current_user.created_at.strftime("%Y-%m-%d") if (current_user and current_user.created_at) else "2026-10-01"),
+            "joined_at": (current_user.created_at.strftime("%Y-%m-%d") if (current_user and current_user.created_at) else None),
             "streak": guest_prog.streak or 0,
             "total_xp": guest_prog.totalXP or 0,
             "season_xp": getattr(guest_prog, "season_xp", 0) or 0,
             "current_rank": current_rank,
             "rank_title": rank_title,
+            "season_number": season.season_number or 1,
+            "season_days_left": season_days_left,
+            "league": league,
             "followers_count": db_followers,
             "following_count": db_following,
             "is_following": False,
@@ -1174,16 +1126,12 @@ def follow_user(
         db.add(follow_record)
         db.commit()
 
-    base_followers = 0
-    if peer_data:
-        peer_num = int(peer_data["id"].split("_")[1]) if "_" in peer_data["id"] else 1
-        base_followers = 20 + peer_num * 2
     db_followers = db.query(models.UserFollow).filter(models.UserFollow.following_id == target_id_str).count()
 
     return {
         "success": True,
         "is_following": True,
-        "followers_count": base_followers + db_followers
+        "followers_count": db_followers
     }
 
 @app.delete("/api/users/{user_id}/follow")
@@ -1205,16 +1153,12 @@ def unfollow_user(
     ).delete()
     db.commit()
 
-    base_followers = 0
-    if peer_data:
-        peer_num = int(peer_data["id"].split("_")[1]) if "_" in peer_data["id"] else 1
-        base_followers = 20 + peer_num * 2
     db_followers = db.query(models.UserFollow).filter(models.UserFollow.following_id == target_id_str).count()
 
     return {
         "success": True,
         "is_following": False,
-        "followers_count": base_followers + db_followers
+        "followers_count": db_followers
     }
 
 @app.get("/api/users/{user_id}/connections")
@@ -1232,35 +1176,27 @@ def get_user_connections(
     ranked_map = {r["id"]: r for r in ranked_list}
 
     def format_conn_user(uid: str):
-        if uid in ranked_map:
-            r = ranked_map[uid]
-            return {
-                "id": r["id"],
-                "username": r["username"],
-                "avatar_config": r["avatar_config"],
-                "total_xp": r["season_xp"] * 4,
-                "season_xp": r["season_xp"],
-                "rank": r["rank"],
-                "rank_title": "Senior" if r["rank"] == 1 else "Mid-Level" if r["rank"] == 2 else "Junior" if r["rank"] == 3 else None
-            }
-        if uid.startswith("user_"):
-            try:
-                u_id_int = int(uid.replace("user_", ""))
-                u = db.query(models.User).filter(models.User.id == u_id_int).first()
-                if u:
-                    prog = db.query(models.UserProgress).filter(models.UserProgress.user_id == uid).first()
-                    return {
-                        "id": uid,
-                        "username": u.username,
-                        "avatar_config": u.avatar_config,
-                        "total_xp": prog.totalXP if prog else 0,
-                        "season_xp": (getattr(prog, "season_xp", 0) or 0) if prog else 0,
-                        "rank": 20,
-                        "rank_title": None
-                    }
-            except Exception:
-                pass
-        return None
+        if not uid.startswith("user_"):
+            return None
+        try:
+            u_id_int = int(uid.replace("user_", ""))
+        except Exception:
+            return None
+        u = db.query(models.User).filter(models.User.id == u_id_int).first()
+        if not u:
+            return None
+        prog = db.query(models.UserProgress).filter(models.UserProgress.user_id == uid).first()
+        ranked = ranked_map.get(uid)
+        rank = ranked["rank"] if ranked else None
+        return {
+            "id": uid,
+            "username": u.username,
+            "avatar_config": u.avatar_config or models.DEFAULT_AVATAR_CONFIG.copy(),
+            "total_xp": (prog.totalXP or 0) if prog else 0,
+            "season_xp": (getattr(prog, "season_xp", 0) or 0) if prog else 0,
+            "rank": rank,
+            "rank_title": "Senior" if rank == 1 else "Mid-Level" if rank == 2 else "Junior" if rank == 3 else None
+        }
 
     db_follower_records = db.query(models.UserFollow).filter(models.UserFollow.following_id == target_id_str).all()
     followers = []
@@ -1279,34 +1215,6 @@ def get_user_connections(
         if user_obj and user_obj["id"] not in seen_following_ids:
             following.append(user_obj)
             seen_following_ids.add(user_obj["id"])
-
-    for peer in DEFAULT_LEAGUE_PEERS[:6]:
-        if peer["id"] != target_id_str:
-            if len(followers) < 4 and peer["id"] not in seen_follower_ids:
-                followers.append({
-                    "id": peer["id"],
-                    "username": peer["username"],
-                    "avatar_config": peer["avatar_config"],
-                    "total_xp": peer["base_xp"] * 4,
-                    "season_xp": peer["base_xp"],
-                    "rank": ranked_map.get(peer["id"], {}).get("rank", 5),
-                    "rank_title": ranked_map.get(peer["id"], {}).get("coder_title")
-                })
-                seen_follower_ids.add(peer["id"])
-
-    for peer in DEFAULT_LEAGUE_PEERS[3:9]:
-        if peer["id"] != target_id_str:
-            if len(following) < 5 and peer["id"] not in seen_following_ids:
-                following.append({
-                    "id": peer["id"],
-                    "username": peer["username"],
-                    "avatar_config": peer["avatar_config"],
-                    "total_xp": peer["base_xp"] * 4,
-                    "season_xp": peer["base_xp"],
-                    "rank": ranked_map.get(peer["id"], {}).get("rank", 8),
-                    "rank_title": ranked_map.get(peer["id"], {}).get("coder_title")
-                })
-                seen_following_ids.add(peer["id"])
 
     return {
         "followers": followers,
