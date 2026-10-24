@@ -1051,12 +1051,18 @@ def get_user_profile(
     db_following = db.query(models.UserFollow).filter(models.UserFollow.follower_id == target_id_str).count()
 
     if target_user:
-        prog = db.query(models.UserProgress).filter(models.UserProgress.user_id == f"user_{target_user.id}").first()
+        target_uid_str = f"user_{target_user.id}"
+        prog = db.query(models.UserProgress).filter(models.UserProgress.user_id == target_uid_str).first()
         joined_at = target_user.created_at.strftime("%Y-%m-%d") if target_user.created_at else None
         streak = (prog.streak or 0) if prog else 0
         total_xp = (prog.totalXP or 0) if prog else 0
         season_xp = (getattr(prog, "season_xp", 0) or 0) if prog else 0
         avatar_config = target_user.avatar_config
+        completed_nodes_count = len(prog.completed_nodes or []) if prog else 0
+        solved_mistakes_count = db.query(models.UserMistake).filter(
+            models.UserMistake.user_id == target_uid_str,
+            or_(models.UserMistake.resolved == True, models.UserMistake.status == "resolved")
+        ).count()
 
         return {
             "id": f"user_{target_user.id}",
@@ -1073,12 +1079,21 @@ def get_user_profile(
             "league": league,
             "followers_count": db_followers,
             "following_count": db_following,
+            "completed_nodes_count": completed_nodes_count,
+            "solved_mistakes_count": solved_mistakes_count,
             "is_following": is_following,
             "is_me": is_me,
         }
 
     if target_id_str == "guest" or user_id.lower() in ("current", "me", "you"):
         guest_prog = get_user_progress(db, current_user)
+        guest_uid = f"user_{current_user.id}" if current_user else "default_user"
+        completed_nodes_count = len(guest_prog.completed_nodes or []) if guest_prog else 0
+        solved_mistakes_count = db.query(models.UserMistake).filter(
+            models.UserMistake.user_id == guest_uid,
+            or_(models.UserMistake.resolved == True, models.UserMistake.status == "resolved")
+        ).count()
+
         return {
             "id": "current",
             "username": current_user.username if current_user else "You",
@@ -1094,11 +1109,61 @@ def get_user_profile(
             "league": league,
             "followers_count": db_followers,
             "following_count": db_following,
+            "completed_nodes_count": completed_nodes_count,
+            "solved_mistakes_count": solved_mistakes_count,
             "is_following": False,
             "is_me": True,
         }
 
     raise HTTPException(status_code=404, detail="User not found")
+
+@app.get("/api/users/{user_id}/honors")
+@app.get("/users/{user_id}/honors")
+def get_user_honors(
+    user_id: str,
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    target_user, peer_data, target_id_str = resolve_target_user(user_id, current_user, db)
+    if not target_user and target_id_str != "guest":
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if target_user:
+        target_uid_str = f"user_{target_user.id}"
+        prog = db.query(models.UserProgress).filter(models.UserProgress.user_id == target_uid_str).first()
+        streak = (prog.streak or 0) if prog else 0
+        total_xp = (prog.totalXP or 0) if prog else 0
+        completed_nodes_count = len(prog.completed_nodes or []) if prog else 0
+        solved_mistakes_count = db.query(models.UserMistake).filter(
+            models.UserMistake.user_id == target_uid_str,
+            or_(models.UserMistake.resolved == True, models.UserMistake.status == "resolved")
+        ).count()
+        db_followers = db.query(models.UserFollow).filter(models.UserFollow.following_id == target_uid_str).count()
+    else:
+        guest_prog = get_user_progress(db, current_user)
+        guest_uid = f"user_{current_user.id}" if current_user else "default_user"
+        streak = guest_prog.streak or 0
+        total_xp = guest_prog.totalXP or 0
+        completed_nodes_count = len(guest_prog.completed_nodes or []) if guest_prog else 0
+        solved_mistakes_count = db.query(models.UserMistake).filter(
+            models.UserMistake.user_id == guest_uid,
+            or_(models.UserMistake.resolved == True, models.UserMistake.status == "resolved")
+        ).count()
+        db_followers = db.query(models.UserFollow).filter(models.UserFollow.following_id == guest_uid).count()
+
+    ranked_list, user_rank = compute_leaderboard_rankings(db, current_user)
+    target_ranked = next((r for r in ranked_list if r["id"] == target_id_str), None)
+    current_rank = target_ranked["rank"] if target_ranked else user_rank
+
+    return {
+        "user_id": target_id_str,
+        "streak": streak,
+        "total_xp": total_xp,
+        "completed_nodes_count": completed_nodes_count,
+        "solved_mistakes_count": solved_mistakes_count,
+        "followers_count": db_followers,
+        "current_rank": current_rank,
+    }
 
 @app.post("/api/users/{user_id}/follow")
 @app.post("/users/{user_id}/follow")
