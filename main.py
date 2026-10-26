@@ -269,8 +269,20 @@ def serialize_user(user: models.User):
         "age": user.age,
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "avatar": user.avatar or {},
-        "avatar_config": user.avatar_config or models.DEFAULT_AVATAR_CONFIG
+        "avatar_config": user.avatar_config or models.DEFAULT_AVATAR_CONFIG,
+        "coder_title": getattr(user, "coder_title", None) or "Frontend Developer",
+        "dev_card": getattr(user, "dev_card", {}) or {}
     }
+
+class UpdateDevCardRequest(BaseModel):
+    specialtyTitle: Optional[str] = None
+    collabStatus: Optional[str] = None
+    bio: Optional[str] = None
+    techStack: Optional[list] = None
+    githubUrl: Optional[str] = None
+    linkedinUrl: Optional[str] = None
+    websiteUrl: Optional[str] = None
+    email: Optional[str] = None
 
 class UpdateAvatarConfigRequest(BaseModel):
     avatar_config: Optional[dict] = None
@@ -477,6 +489,32 @@ def change_password(
     db.commit()
     db.refresh(user)
     return {"success": True, "message": "Password changed successfully"}
+
+@app.put("/api/user/dev-card")
+@app.put("/user/dev-card")
+@app.post("/api/user/dev-card")
+@app.post("/user/dev-card")
+def update_dev_card(
+    req: UpdateDevCardRequest,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    current_card = dict(user.dev_card or {})
+    card_dict = req.dict(exclude_unset=True)
+    current_card.update(card_dict)
+    if req.specialtyTitle and req.specialtyTitle.strip():
+        clean_title = req.specialtyTitle.strip()
+        user.coder_title = clean_title
+        current_card["specialtyTitle"] = clean_title
+    user.dev_card = current_card
+    db.commit()
+    db.refresh(user)
+    return {
+        "success": True,
+        "user": serialize_user(user),
+        "dev_card": user.dev_card,
+        "coder_title": user.coder_title
+    }
 
 @app.get("/progress")
 @app.get("/api/user/progress")
@@ -879,9 +917,11 @@ def compute_leaderboard_rankings(db: Session, user: Optional[models.User]):
         u_season_xp = (getattr(u_prog, "season_xp", 0) or 0) if u_prog else 0
         u_streak = (u_prog.streak or 0) if u_prog else 0
         u_avatar = u.avatar_config or models.DEFAULT_AVATAR_CONFIG.copy()
+        u_title = getattr(u, "coder_title", None) or (u.dev_card.get("specialtyTitle") if getattr(u, "dev_card", None) else None) or "Frontend Developer"
         participants.append({
             "id": f"user_{u.id}",
             "username": u.username,
+            "coder_title": u_title,
             "season_xp": u_season_xp,
             "streak": u_streak,
             "avatar_config": u_avatar,
@@ -894,6 +934,7 @@ def compute_leaderboard_rankings(db: Session, user: Optional[models.User]):
         participants.append({
             "id": "guest",
             "username": "You",
+            "coder_title": "Frontend Developer",
             "season_xp": getattr(guest_prog, "season_xp", 0) or 0,
             "streak": guest_prog.streak or 0,
             "avatar_config": models.DEFAULT_AVATAR_CONFIG.copy(),
@@ -906,7 +947,7 @@ def compute_leaderboard_rankings(db: Session, user: Optional[models.User]):
     ranked_list = []
     user_rank = 1
     for index, p in enumerate(participants, start=1):
-        assigned_title = get_coder_title_for_rank(index)
+        assigned_title = p.get("coder_title") or "Frontend Developer"
         entry = {
             "rank": index,
             "id": p["id"],
@@ -997,7 +1038,7 @@ def get_leaderboard(
             "season_xp": user_season_xp,
             "total_xp": user_total_xp,
             "streak": user_streak,
-            "coder_title": get_coder_title_for_rank(user_rank),
+            "coder_title": (user.coder_title if (user and getattr(user, "coder_title", None)) else "Frontend Developer"),
             "avatar_config": user_avatar,
             "is_top": is_user_in_top,
         },
@@ -1083,6 +1124,8 @@ def get_user_profile(
             "solved_mistakes_count": solved_mistakes_count,
             "is_following": is_following,
             "is_me": is_me,
+            "coder_title": getattr(target_user, "coder_title", None) or (target_user.dev_card.get("specialtyTitle") if getattr(target_user, "dev_card", None) else None) or "Frontend Developer",
+            "dev_card": getattr(target_user, "dev_card", {}) or {},
         }
 
     if target_id_str == "guest" or user_id.lower() in ("current", "me", "you"):
@@ -1113,6 +1156,8 @@ def get_user_profile(
             "solved_mistakes_count": solved_mistakes_count,
             "is_following": False,
             "is_me": True,
+            "coder_title": (current_user.coder_title if (current_user and getattr(current_user, "coder_title", None)) else "Frontend Developer"),
+            "dev_card": (current_user.dev_card if current_user else {}),
         }
 
     raise HTTPException(status_code=404, detail="User not found")

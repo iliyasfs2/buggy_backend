@@ -25,6 +25,19 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     _avatar = Column("avatar", Text, default='{}')
     _avatar_config = Column("avatar_config", Text, default=json.dumps(DEFAULT_AVATAR_CONFIG))
+    coder_title = Column(String, default="Frontend Developer", nullable=True)
+    _dev_card = Column("dev_card", Text, default='{}', nullable=True)
+
+    @property
+    def dev_card(self):
+        try:
+            return json.loads(self._dev_card) if self._dev_card else {}
+        except Exception:
+            return {}
+
+    @dev_card.setter
+    def dev_card(self, value):
+        self._dev_card = json.dumps(value)
 
     @property
     def avatar(self):
