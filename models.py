@@ -85,6 +85,21 @@ class UserProgress(Base):
     _daily_quests_state = Column("daily_quests_state", Text, default='[]')
     _completed_nodes = Column("completed_nodes", Text, default="[]")
     _unlocked_nodes = Column("unlocked_nodes", Text, default='["js-1-1"]')
+    _dev_card = Column("dev_card", Text, default='{}', nullable=True)
+
+    @property
+    def dev_card(self):
+        if not self._dev_card:
+            return {}
+        try:
+            val = json.loads(self._dev_card)
+            return val if isinstance(val, dict) else {}
+        except Exception:
+            return {}
+
+    @dev_card.setter
+    def dev_card(self, value):
+        self._dev_card = json.dumps(value if isinstance(value, dict) else {})
 
     @property
     def completed_nodes(self):

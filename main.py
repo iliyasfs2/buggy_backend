@@ -9,13 +9,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 
 import models
 import auth
 from database import engine, get_db
 
 models.Base.metadata.create_all(bind=engine)
+
+def ensure_sqlite_columns():
+    with engine.begin() as conn:
+        user_cols = [r[1] for r in conn.execute(text("PRAGMA table_info(users)")).fetchall()]
+        if "coder_title" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN coder_title VARCHAR DEFAULT 'Frontend Developer'"))
+        if "dev_card" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN dev_card TEXT DEFAULT '{}'"))
+        prog_cols = [r[1] for r in conn.execute(text("PRAGMA table_info(user_progress)")).fetchall()]
+        if "dev_card" not in prog_cols:
+            conn.execute(text("ALTER TABLE user_progress ADD COLUMN dev_card TEXT DEFAULT '{}'"))
+
+ensure_sqlite_columns()
 
 app = FastAPI(title="Buggy Progress API (SQLAlchemy + Auth)")
 
@@ -228,18 +241,101 @@ def update_user_streak(progress) -> bool:
     progress.last_active_date = today
     return True
 
-def get_progress_response(progress, db: Optional[Session] = None, streak_increased: bool = False):
-    seconds_left = sync_user_battery(progress, db)
-    mistakes_count = 0
+COURSE_TRACKS = [
+    {"id": "javascript", "title": "JavaScript", "shortLabel": "JS", "prefix": "js-", "totalNodes": 10},
+    {"id": "python", "title": "Python", "shortLabel": "PY", "prefix": "py-", "totalNodes": 10},
+    {"id": "typescript", "title": "TypeScript", "shortLabel": "TS", "prefix": "ts-", "totalNodes": 10},
+    {"id": "react", "title": "React", "shortLabel": "React", "prefix": "react-", "totalNodes": 10},
+    {"id": "cpp", "title": "C++", "shortLabel": "C++", "prefix": "cpp-", "totalNodes": 10},
+    {"id": "go", "title": "Go", "shortLabel": "Go", "prefix": "go-", "totalNodes": 10},
+    {"id": "rust", "title": "Rust", "shortLabel": "Rust", "prefix": "rust-", "totalNodes": 10},
+    {"id": "html", "title": "HTML & CSS", "shortLabel": "HTML", "prefix": "html-", "totalNodes": 10},
+]
+
+def compute_courses_mastery(completed_nodes: Optional[list], active_course: Optional[str] = "javascript") -> list:
+    completed_set = {str(n).strip().lower() for n in (completed_nodes or []) if n}
+    active_id = (active_course or "javascript").strip().lower()
+    results = []
+    for track in COURSE_TRACKS:
+        done_count = sum(1 for node_id in completed_set if node_id.startswith(track["prefix"]))
+        if done_count > 0 or track["id"] == active_id:
+            total = max(1, int(track["totalNodes"]))
+            percent = min(100, int(round((done_count / total) * 100)))
+            results.append({
+                "id": track["id"],
+                "title": track["title"],
+                "shortLabel": track["shortLabel"],
+                "completedNodes": done_count,
+                "totalNodes": total,
+                "percent": percent,
+                "isCompleted": percent >= 100,
+            })
+    if not results:
+        results.append({
+            "id": "javascript",
+            "title": "JavaScript",
+            "shortLabel": "JS",
+            "completedNodes": 0,
+            "totalNodes": 10,
+            "percent": 0,
+            "isCompleted": False,
+        })
+    results.sort(key=lambda item: (0 if item["id"] == "javascript" else 1, -item["percent"], item["title"]))
+    return results
+
+def compute_user_dev_stats(db: Optional[Session], target_uid_str: str, prog: Optional[models.UserProgress]) -> dict:
+    streak = int(prog.streak or 0) if prog else 0
+    completed_list = list(prog.completed_nodes or []) if prog else []
+    completed_nodes_count = len(completed_list)
+    active_course = (prog.active_course if prog and prog.active_course else "javascript")
+    pending_mistakes_count = 0
+    solved_mistakes_count = 0
     if db:
         try:
-            mistakes_count = db.query(models.UserMistake).filter(
-                models.UserMistake.user_id == progress.user_id,
+            pending_mistakes_count = db.query(models.UserMistake).filter(
+                models.UserMistake.user_id == target_uid_str,
                 models.UserMistake.resolved != True,
                 models.UserMistake.status != "resolved"
             ).count()
+            solved_mistakes_count = db.query(models.UserMistake).filter(
+                models.UserMistake.user_id == target_uid_str,
+                or_(models.UserMistake.resolved == True, models.UserMistake.status == "resolved")
+            ).count()
         except Exception:
-            mistakes_count = 0
+            pending_mistakes_count = 0
+            solved_mistakes_count = 0
+
+    total_mistakes_count = pending_mistakes_count + solved_mistakes_count
+    bugs_fixed = solved_mistakes_count + completed_nodes_count
+
+    if completed_nodes_count == 0 and total_mistakes_count == 0:
+        accuracy = 0
+    elif completed_nodes_count == 0:
+        accuracy = min(100, int(round((solved_mistakes_count * 75) / max(1, total_mistakes_count))))
+    else:
+        base_steps = completed_nodes_count * 4
+        earned_steps = base_steps + (solved_mistakes_count * 0.75)
+        total_attempts = base_steps + total_mistakes_count
+        accuracy = min(100, max(0, int(round((earned_steps / max(1, total_attempts)) * 100))))
+
+    courses_mastery = compute_courses_mastery(completed_list, active_course)
+    primary_mastery = courses_mastery[0]["percent"] if courses_mastery else 0
+
+    return {
+        "streak": streak,
+        "bugs_fixed": bugs_fixed,
+        "accuracy": accuracy,
+        "mastery_percent": primary_mastery,
+        "completed_nodes_count": completed_nodes_count,
+        "solved_mistakes_count": solved_mistakes_count,
+        "pending_mistakes_count": pending_mistakes_count,
+        "courses_mastery": courses_mastery,
+    }
+
+def get_progress_response(progress, db: Optional[Session] = None, streak_increased: bool = False):
+    seconds_left = sync_user_battery(progress, db)
+    dev_stats = compute_user_dev_stats(db, progress.user_id, progress)
+    mistakes_count = dev_stats["pending_mistakes_count"]
 
     return {
         "totalXP": progress.totalXP,
@@ -252,6 +348,11 @@ def get_progress_response(progress, db: Optional[Session] = None, streak_increas
         "seconds_until_next_refill": seconds_left,
         "unresolved_mistakes_count": mistakes_count,
         "mistakes_count": mistakes_count,
+        "solved_mistakes_count": dev_stats["solved_mistakes_count"],
+        "bugs_fixed": dev_stats["bugs_fixed"],
+        "accuracy": dev_stats["accuracy"],
+        "mastery_percent": dev_stats["mastery_percent"],
+        "courses_mastery": dev_stats["courses_mastery"],
         "battery_recharge_at": getattr(progress, "battery_recharge_at", None),
         "bytes": progress.bytes,
         "streak_freeze": getattr(progress, "streak_freeze", 0) or 0,
@@ -342,18 +443,33 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
-    progress = models.UserProgress(
-        user_id=f"user_{user.id}",
-        battery=5,
-        bytes=100,
-        streak=0,
-        totalXP=0,
-        season_xp=0,
-        active_course="javascript",
-        last_battery_update=datetime.utcnow()
-    )
-    db.add(progress)
-    db.commit()
+    target_prog_uid = f"user_{user.id}"
+    existing_prog = db.query(models.UserProgress).filter(models.UserProgress.user_id == target_prog_uid).first()
+    if existing_prog:
+        existing_prog.battery = 5
+        existing_prog.bytes = 100
+        existing_prog.streak = 0
+        existing_prog.totalXP = 0
+        existing_prog.season_xp = 0
+        existing_prog.active_course = "javascript"
+        existing_prog.completed_nodes = []
+        existing_prog.unlocked_nodes = ["js-1-1"]
+        existing_prog.dev_card = {}
+        existing_prog.last_battery_update = datetime.utcnow()
+        db.commit()
+    else:
+        progress = models.UserProgress(
+            user_id=target_prog_uid,
+            battery=5,
+            bytes=100,
+            streak=0,
+            totalXP=0,
+            season_xp=0,
+            active_course="javascript",
+            last_battery_update=datetime.utcnow()
+        )
+        db.add(progress)
+        db.commit()
 
     token = auth.create_access_token({
         "sub": str(user.id),
@@ -492,30 +608,87 @@ def change_password(
     db.refresh(user)
     return {"success": True, "message": "Password changed successfully"}
 
+@app.get("/api/user/dev-card")
+@app.get("/user/dev-card")
+def get_dev_card(
+    user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    progress = get_user_progress(db, user)
+    target_uid_str = f"user_{user.id}" if user else "default_user"
+    dev_stats = compute_user_dev_stats(db, target_uid_str, progress)
+    if user:
+        card_data = dict(user.dev_card or {})
+        coder_title = getattr(user, "coder_title", None) or card_data.get("specialtyTitle") or "Full-Stack Developer"
+        return {
+            "is_authenticated": True,
+            "username": user.username,
+            "avatar_config": user.avatar_config or models.DEFAULT_AVATAR_CONFIG.copy(),
+            "coder_title": coder_title,
+            "dev_card": card_data,
+            "stats": dev_stats,
+            "courses_mastery": dev_stats["courses_mastery"],
+        }
+    guest_card = dict(progress.dev_card or {})
+    guest_title = guest_card.get("specialtyTitle") or "Full-Stack Developer"
+    return {
+        "is_authenticated": False,
+        "username": "Developer",
+        "avatar_config": models.DEFAULT_AVATAR_CONFIG.copy(),
+        "coder_title": guest_title,
+        "dev_card": guest_card,
+        "stats": dev_stats,
+        "courses_mastery": dev_stats["courses_mastery"],
+    }
+
 @app.put("/api/user/dev-card")
 @app.put("/user/dev-card")
 @app.post("/api/user/dev-card")
 @app.post("/user/dev-card")
 def update_dev_card(
     req: UpdateDevCardRequest,
-    user: models.User = Depends(get_current_user),
+    user: Optional[models.User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    current_card = dict(user.dev_card or {})
+    progress = get_user_progress(db, user)
+    target_uid_str = f"user_{user.id}" if user else "default_user"
     card_dict = req.dict(exclude_unset=True)
-    current_card.update(card_dict)
-    if req.specialtyTitle and req.specialtyTitle.strip():
-        clean_title = req.specialtyTitle.strip()
-        user.coder_title = clean_title
-        current_card["specialtyTitle"] = clean_title
-    user.dev_card = current_card
+
+    if user:
+        current_card = dict(user.dev_card or {})
+        current_card.update(card_dict)
+        if req.specialtyTitle is not None and req.specialtyTitle.strip():
+            clean_title = req.specialtyTitle.strip()
+            user.coder_title = clean_title
+            current_card["specialtyTitle"] = clean_title
+        user.dev_card = current_card
+        db.commit()
+        db.refresh(user)
+        dev_stats = compute_user_dev_stats(db, target_uid_str, progress)
+        return {
+            "success": True,
+            "user": serialize_user(user),
+            "dev_card": user.dev_card,
+            "coder_title": user.coder_title,
+            "stats": dev_stats,
+            "courses_mastery": dev_stats["courses_mastery"],
+        }
+
+    guest_card = dict(progress.dev_card or {})
+    guest_card.update(card_dict)
+    if req.specialtyTitle is not None and req.specialtyTitle.strip():
+        guest_card["specialtyTitle"] = req.specialtyTitle.strip()
+    progress.dev_card = guest_card
     db.commit()
-    db.refresh(user)
+    db.refresh(progress)
+    dev_stats = compute_user_dev_stats(db, target_uid_str, progress)
     return {
         "success": True,
-        "user": serialize_user(user),
-        "dev_card": user.dev_card,
-        "coder_title": user.coder_title
+        "user": None,
+        "dev_card": progress.dev_card,
+        "coder_title": guest_card.get("specialtyTitle") or "Full-Stack Developer",
+        "stats": dev_stats,
+        "courses_mastery": dev_stats["courses_mastery"],
     }
 
 @app.get("/progress")
@@ -1097,22 +1270,17 @@ def get_user_profile(
         target_uid_str = f"user_{target_user.id}"
         prog = db.query(models.UserProgress).filter(models.UserProgress.user_id == target_uid_str).first()
         joined_at = target_user.created_at.strftime("%Y-%m-%d") if target_user.created_at else None
-        streak = (prog.streak or 0) if prog else 0
         total_xp = (prog.totalXP or 0) if prog else 0
         season_xp = (getattr(prog, "season_xp", 0) or 0) if prog else 0
         avatar_config = target_user.avatar_config
-        completed_nodes_count = len(prog.completed_nodes or []) if prog else 0
-        solved_mistakes_count = db.query(models.UserMistake).filter(
-            models.UserMistake.user_id == target_uid_str,
-            or_(models.UserMistake.resolved == True, models.UserMistake.status == "resolved")
-        ).count()
+        dev_stats = compute_user_dev_stats(db, target_uid_str, prog)
 
         return {
             "id": f"user_{target_user.id}",
             "username": target_user.username,
             "avatar_config": avatar_config,
             "joined_at": joined_at,
-            "streak": streak,
+            "streak": dev_stats["streak"],
             "total_xp": total_xp,
             "season_xp": season_xp,
             "current_rank": current_rank,
@@ -1122,8 +1290,13 @@ def get_user_profile(
             "league": league,
             "followers_count": db_followers,
             "following_count": db_following,
-            "completed_nodes_count": completed_nodes_count,
-            "solved_mistakes_count": solved_mistakes_count,
+            "completed_nodes_count": dev_stats["completed_nodes_count"],
+            "solved_mistakes_count": dev_stats["solved_mistakes_count"],
+            "bugs_fixed": dev_stats["bugs_fixed"],
+            "accuracy": dev_stats["accuracy"],
+            "mastery_percent": dev_stats["mastery_percent"],
+            "courses_mastery": dev_stats["courses_mastery"],
+            "active_course": prog.active_course if prog and prog.active_course else "javascript",
             "is_following": is_following,
             "is_me": is_me,
             "coder_title": getattr(target_user, "coder_title", None) or (target_user.dev_card.get("specialtyTitle") if getattr(target_user, "dev_card", None) else None) or "Frontend Developer",
@@ -1133,18 +1306,15 @@ def get_user_profile(
     if target_id_str == "guest" or user_id.lower() in ("current", "me", "you"):
         guest_prog = get_user_progress(db, current_user)
         guest_uid = f"user_{current_user.id}" if current_user else "default_user"
-        completed_nodes_count = len(guest_prog.completed_nodes or []) if guest_prog else 0
-        solved_mistakes_count = db.query(models.UserMistake).filter(
-            models.UserMistake.user_id == guest_uid,
-            or_(models.UserMistake.resolved == True, models.UserMistake.status == "resolved")
-        ).count()
+        dev_stats = compute_user_dev_stats(db, guest_uid, guest_prog)
+        effective_dev_card = (current_user.dev_card if current_user else (guest_prog.dev_card if guest_prog else {})) or {}
 
         return {
             "id": "current",
             "username": current_user.username if current_user else "You",
             "avatar_config": (current_user.avatar_config if current_user else models.DEFAULT_AVATAR_CONFIG.copy()),
             "joined_at": (current_user.created_at.strftime("%Y-%m-%d") if (current_user and current_user.created_at) else None),
-            "streak": guest_prog.streak or 0,
+            "streak": dev_stats["streak"],
             "total_xp": guest_prog.totalXP or 0,
             "season_xp": getattr(guest_prog, "season_xp", 0) or 0,
             "current_rank": current_rank,
@@ -1154,12 +1324,17 @@ def get_user_profile(
             "league": league,
             "followers_count": db_followers,
             "following_count": db_following,
-            "completed_nodes_count": completed_nodes_count,
-            "solved_mistakes_count": solved_mistakes_count,
+            "completed_nodes_count": dev_stats["completed_nodes_count"],
+            "solved_mistakes_count": dev_stats["solved_mistakes_count"],
+            "bugs_fixed": dev_stats["bugs_fixed"],
+            "accuracy": dev_stats["accuracy"],
+            "mastery_percent": dev_stats["mastery_percent"],
+            "courses_mastery": dev_stats["courses_mastery"],
+            "active_course": guest_prog.active_course if guest_prog and guest_prog.active_course else "javascript",
             "is_following": False,
             "is_me": True,
-            "coder_title": (current_user.coder_title if (current_user and getattr(current_user, "coder_title", None)) else "Frontend Developer"),
-            "dev_card": (current_user.dev_card if current_user else {}),
+            "coder_title": (current_user.coder_title if (current_user and getattr(current_user, "coder_title", None)) else effective_dev_card.get("specialtyTitle") or "Frontend Developer"),
+            "dev_card": effective_dev_card,
         }
 
     raise HTTPException(status_code=404, detail="User not found")
