@@ -279,9 +279,11 @@ class UpdateDevCardRequest(BaseModel):
     collabStatus: Optional[str] = None
     bio: Optional[str] = None
     techStack: Optional[list] = None
+    projects: Optional[list] = None
     githubUrl: Optional[str] = None
     linkedinUrl: Optional[str] = None
     websiteUrl: Optional[str] = None
+    telegramUrl: Optional[str] = None
     email: Optional[str] = None
 
 class UpdateAvatarConfigRequest(BaseModel):
