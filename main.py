@@ -664,6 +664,7 @@ def update_dev_card(
         user.dev_card = current_card
         db.commit()
         db.refresh(user)
+        sync_user_projects_to_showcase(db, target_uid_str, user.username, current_card)
         dev_stats = compute_user_dev_stats(db, target_uid_str, progress)
         return {
             "success": True,
@@ -681,6 +682,7 @@ def update_dev_card(
     progress.dev_card = guest_card
     db.commit()
     db.refresh(progress)
+    sync_user_projects_to_showcase(db, target_uid_str, "Developer", guest_card)
     dev_stats = compute_user_dev_stats(db, target_uid_str, progress)
     return {
         "success": True,
@@ -1508,6 +1510,526 @@ def get_user_connections(
         "following": following
     }
 
+
+class CreateSquadRequest(BaseModel):
+    project_title: str
+    my_role: str = "Frontend"
+    needed_role: str = "Backend"
+    min_streak: int = 0
+    description: str = ""
+
+class CreateShowcaseProjectRequest(BaseModel):
+    title: str
+    description: str = ""
+    url: str = ""
+    tech_tags: Optional[List[str]] = None
+
+def infer_role_category(title: str) -> str:
+    low = (title or "").lower()
+    if "front" in low or "ui" in low or "react" in low:
+        return "Frontend"
+    if "back" in low or "api" in low or "system" in low or "data" in low or "python" in low:
+        return "Backend"
+    return "Full-Stack"
+
+def sync_user_projects_to_showcase(db: Session, creator_id: str, creator_username: str, dev_card: dict):
+    projects = dev_card.get("projects") if isinstance(dev_card, dict) else None
+    if not isinstance(projects, list):
+        return
+    tech_stack = dev_card.get("techStack") if isinstance(dev_card.get("techStack"), list) else ["JavaScript", "React"]
+    for p in projects[:2]:
+        if not isinstance(p, dict):
+            continue
+        p_title = str(p.get("title") or "").strip()
+        if not p_title or p_title.lower() == "untitled project":
+            continue
+        existing = db.query(models.ShowcaseProject).filter(
+            models.ShowcaseProject.creator_id == creator_id,
+            models.ShowcaseProject.title.ilike(p_title)
+        ).first()
+        if existing:
+            existing.description = str(p.get("desc") or existing.description or "").strip()
+            existing.url = str(p.get("link") or existing.url or "").strip()
+            existing.tech_tags = tech_stack[:4]
+        else:
+            item = models.ShowcaseProject(
+                creator_id=creator_id,
+                creator_username=creator_username,
+                title=p_title,
+                description=str(p.get("desc") or "Built on Buggy.").strip(),
+                url=str(p.get("link") or "https://github.com").strip(),
+                boost_count=3,
+            )
+            item.tech_tags = tech_stack[:4]
+            db.add(item)
+    db.commit()
+
+def ensure_dev_hub_seed(db: Session):
+    curated_profiles = {
+        "ILIYASFS": {
+            "specialtyTitle": "Full-Stack Developer",
+            "collabStatus": "Open to Work",
+            "bio": "Building interactive web apps with React & FastAPI.",
+            "techStack": ["JavaScript", "React", "TypeScript", "Python", "FastAPI"],
+            "is_super": True,
+            "githubUrl": "https://github.com/iliyasfs2",
+            "linkedinUrl": "https://linkedin.com",
+            "websiteUrl": "https://buggy.dev",
+            "telegramUrl": "https://t.me",
+            "email": "coder@buggy.dev",
+            "projects": [
+                {
+                    "id": "p1",
+                    "title": "Buggy Platform",
+                    "desc": "Gamified platform to learn coding and debugging.",
+                    "link": "https://buggy.dev"
+                },
+                {
+                    "id": "p2",
+                    "title": "SmartCode Runner",
+                    "desc": "Interactive client sandbox with AST diagnostics.",
+                    "link": "https://github.com"
+                }
+            ]
+        },
+        "Alex": {
+            "specialtyTitle": "Backend Developer",
+            "collabStatus": "Looking for Teammate",
+            "bio": "Distributed systems & high-speed Python APIs.",
+            "techStack": ["Python", "FastAPI", "SQL", "Git", "TypeScript"],
+            "is_super": True,
+            "githubUrl": "https://github.com",
+            "telegramUrl": "https://t.me",
+            "projects": [
+                {
+                    "id": "alex_p1",
+                    "title": "PulseQueue Engine",
+                    "desc": "Async task runner with zero-latency worker pools.",
+                    "link": "https://github.com"
+                }
+            ]
+        },
+        "testcoder": {
+            "specialtyTitle": "Frontend Developer",
+            "collabStatus": "Open to Work",
+            "bio": "Crafting pixel-perfect React & Next.js interfaces.",
+            "techStack": ["JavaScript", "TypeScript", "React", "Next.js", "Tailwind CSS"],
+            "is_super": False,
+            "githubUrl": "https://github.com",
+            "projects": [
+                {
+                    "id": "tc_p1",
+                    "title": "PixelFlow UI Kit",
+                    "desc": "Tactile 3D component library for gamified web apps.",
+                    "link": "https://github.com"
+                }
+            ]
+        },
+        "avatar_tester": {
+            "specialtyTitle": "Full-Stack Developer",
+            "collabStatus": "Learning & Coding",
+            "bio": "Mastering JavaScript algorithms and clean architecture.",
+            "techStack": ["JavaScript", "Node.js", "React", "Git"],
+            "is_super": False,
+            "githubUrl": "https://github.com",
+            "projects": [
+                {
+                    "id": "av_p1",
+                    "title": "CodeTrace Visualizer",
+                    "desc": "Step-by-step call stack visualizer for learners.",
+                    "link": "https://github.com"
+                }
+            ]
+        }
+    }
+
+    changed = False
+    for uname, card_template in curated_profiles.items():
+        u = db.query(models.User).filter(models.User.username.ilike(uname)).first()
+        if u:
+            existing_card = dict(u.dev_card or {})
+            if not existing_card:
+                u.dev_card = card_template
+                u.coder_title = card_template["specialtyTitle"]
+                changed = True
+            elif uname == "ILIYASFS" and not existing_card.get("is_super"):
+                existing_card["is_super"] = True
+                u.dev_card = existing_card
+                changed = True
+
+    if changed:
+        db.commit()
+
+    if db.query(models.SquadRequest).count() == 0:
+        initial_squads = [
+            models.SquadRequest(
+                creator_id="user_2",
+                creator_username="ILIYASFS",
+                project_title="Buggy AI Pair Debugger",
+                my_role="Full-Stack",
+                needed_role="Frontend",
+                min_streak=3,
+                description="Building a live multiplayer debug arena. Need a React/Tailwind wizard for animations!"
+            ),
+            models.SquadRequest(
+                creator_id="user_6",
+                creator_username="Alex",
+                project_title="Realtime Code Collab CLI",
+                my_role="Backend",
+                needed_role="Frontend",
+                min_streak=5,
+                description="FastAPI WebSocket backend is ready. Looking for a frontend teammate to build the dashboard."
+            ),
+            models.SquadRequest(
+                creator_id="user_1",
+                creator_username="testcoder",
+                project_title="OpenSource Algorithm Cards",
+                my_role="Frontend",
+                needed_role="Backend",
+                min_streak=2,
+                description="Interactive flashcards for JS & Python interviews. Need help with API & SQLite sync."
+            ),
+        ]
+        for sq in initial_squads:
+            db.add(sq)
+        db.commit()
+
+    if db.query(models.ShowcaseProject).count() == 0:
+        initial_showcase = [
+            models.ShowcaseProject(
+                creator_id="user_2",
+                creator_username="ILIYASFS",
+                title="Buggy Platform",
+                description="Gamified platform to learn coding, hunt bugs, and build your verified developer identity.",
+                url="https://buggy.dev",
+                boost_count=48,
+            ),
+            models.ShowcaseProject(
+                creator_id="user_6",
+                creator_username="Alex",
+                title="PulseQueue Engine",
+                description="High-speed async job queue in Python & FastAPI with live telemetry.",
+                url="https://github.com",
+                boost_count=31,
+            ),
+            models.ShowcaseProject(
+                creator_id="user_2",
+                creator_username="ILIYASFS",
+                title="SmartCode Runner",
+                description="Interactive client sandbox with real-time AST diagnostics and zero-latency execution.",
+                url="https://github.com",
+                boost_count=24,
+            ),
+            models.ShowcaseProject(
+                creator_id="user_1",
+                creator_username="testcoder",
+                title="PixelFlow UI Kit",
+                description="3D tactile dark-navy UI components built with Tailwind CSS and Framer Motion.",
+                url="https://github.com",
+                boost_count=17,
+            ),
+        ]
+        initial_showcase[0].tech_tags = ["JavaScript", "React", "TypeScript", "FastAPI"]
+        initial_showcase[1].tech_tags = ["Python", "FastAPI", "SQL"]
+        initial_showcase[2].tech_tags = ["TypeScript", "JavaScript", "React"]
+        initial_showcase[3].tech_tags = ["React", "Next.js", "Tailwind CSS"]
+        for sh in initial_showcase:
+            db.add(sh)
+        db.commit()
+
+def build_talent_entry(db: Session, u: models.User, current_uid_str: str) -> dict:
+    uid_str = f"user_{u.id}"
+    prog = db.query(models.UserProgress).filter(models.UserProgress.user_id == uid_str).first()
+    dev_stats = compute_user_dev_stats(db, uid_str, prog)
+    card = dict(u.dev_card or {})
+    specialty = card.get("specialtyTitle") or getattr(u, "coder_title", None) or "Full-Stack Developer"
+    status_val = card.get("collabStatus") or "Open to Work"
+    bio_val = card.get("bio") or "Building interactive web apps and solving bugs on Buggy."
+    tech_stack = card.get("techStack") if isinstance(card.get("techStack"), list) and len(card.get("techStack")) > 0 else ["JavaScript", "React", "Python"]
+    projects = card.get("projects") if isinstance(card.get("projects"), list) else []
+    total_xp = int(prog.totalXP or 0) if prog else 0
+    is_super = bool(card.get("is_super") or total_xp >= 300)
+
+    is_following = False
+    if current_uid_str != uid_str:
+        is_following = bool(
+            db.query(models.UserFollow).filter(
+                models.UserFollow.follower_id == current_uid_str,
+                models.UserFollow.following_id == uid_str
+            ).first()
+        )
+    followers_count = db.query(models.UserFollow).filter(models.UserFollow.following_id == uid_str).count()
+
+    return {
+        "id": uid_str,
+        "username": u.username,
+        "display_name": u.username,
+        "avatar_config": u.avatar_config or models.DEFAULT_AVATAR_CONFIG.copy(),
+        "specialty_title": specialty,
+        "role_category": infer_role_category(specialty),
+        "collab_status": status_val,
+        "bio": bio_val,
+        "tech_stack": tech_stack,
+        "projects": projects,
+        "social_links": {
+            "githubUrl": card.get("githubUrl") or "",
+            "linkedinUrl": card.get("linkedinUrl") or "",
+            "websiteUrl": card.get("websiteUrl") or "",
+            "telegramUrl": card.get("telegramUrl") or "",
+            "email": card.get("email") or "",
+        },
+        "is_super": is_super,
+        "streak": dev_stats["streak"],
+        "bugs_fixed": dev_stats["bugs_fixed"],
+        "accuracy": dev_stats["accuracy"],
+        "total_xp": total_xp,
+        "mastery_percent": dev_stats["mastery_percent"],
+        "courses_mastery": dev_stats["courses_mastery"],
+        "is_following": is_following,
+        "followers_count": followers_count,
+        "is_me": current_uid_str == uid_str,
+    }
+
+@app.get("/api/dev-hub/talents")
+def get_dev_hub_talents(
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    ensure_dev_hub_seed(db)
+    current_uid_str = f"user_{current_user.id}" if current_user else "guest"
+    users = db.query(models.User).all()
+    talents = [build_talent_entry(db, u, current_uid_str) for u in users if not u.username.startswith("store_user_") and not u.username.startswith("new_179")]
+    talents.sort(key=lambda t: (1 if t["is_super"] else 0, t["streak"], t["bugs_fixed"], t["total_xp"]), reverse=True)
+    return {"talents": talents}
+
+@app.get("/api/dev-hub/squads")
+def get_dev_hub_squads(
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    ensure_dev_hub_seed(db)
+    current_uid_str = f"user_{current_user.id}" if current_user else "default_user"
+    rows = db.query(models.SquadRequest).order_by(models.SquadRequest.id.desc()).all()
+    user_map = {f"user_{u.id}": u for u in db.query(models.User).all()}
+
+    items = []
+    for sq in rows:
+        u = user_map.get(sq.creator_id)
+        if u:
+            talent_meta = build_talent_entry(db, u, current_uid_str)
+        else:
+            guest_prog = get_user_progress(db, None)
+            dev_stats = compute_user_dev_stats(db, "default_user", guest_prog)
+            guest_card = dict(guest_prog.dev_card or {})
+            talent_meta = {
+                "id": sq.creator_id,
+                "username": sq.creator_username,
+                "display_name": sq.creator_username,
+                "avatar_config": models.DEFAULT_AVATAR_CONFIG.copy(),
+                "specialty_title": guest_card.get("specialtyTitle") or "Full-Stack Developer",
+                "collab_status": guest_card.get("collabStatus") or "Looking for Teammate",
+                "bio": guest_card.get("bio") or "Building cool projects on Buggy.",
+                "tech_stack": guest_card.get("techStack") or ["JavaScript", "React"],
+                "projects": guest_card.get("projects") or [],
+                "social_links": {
+                    "githubUrl": guest_card.get("githubUrl") or "",
+                    "linkedinUrl": guest_card.get("linkedinUrl") or "",
+                    "websiteUrl": guest_card.get("websiteUrl") or "",
+                    "telegramUrl": guest_card.get("telegramUrl") or "",
+                    "email": guest_card.get("email") or "",
+                },
+                "is_super": False,
+                "streak": dev_stats["streak"],
+                "bugs_fixed": dev_stats["bugs_fixed"],
+                "accuracy": dev_stats["accuracy"],
+                "mastery_percent": dev_stats["mastery_percent"],
+                "courses_mastery": dev_stats["courses_mastery"],
+            }
+        items.append({
+            "id": sq.id,
+            "creator_id": sq.creator_id,
+            "creator_username": talent_meta["username"],
+            "project_title": sq.project_title,
+            "my_role": sq.my_role,
+            "needed_role": sq.needed_role,
+            "min_streak": sq.min_streak or 0,
+            "description": sq.description or "",
+            "created_at": sq.created_at.isoformat() if sq.created_at else None,
+            "is_mine": sq.creator_id == current_uid_str,
+            "creator": talent_meta,
+        })
+    return {"squads": items}
+
+@app.post("/api/dev-hub/squads")
+def create_dev_hub_squad(
+    req: CreateSquadRequest,
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    clean_title = (req.project_title or "").strip()
+    if len(clean_title) < 2:
+        raise HTTPException(status_code=400, detail="Project title is required")
+    creator_id = f"user_{current_user.id}" if current_user else "default_user"
+    creator_username = current_user.username if current_user else "Developer"
+
+    sq = models.SquadRequest(
+        creator_id=creator_id,
+        creator_username=creator_username,
+        project_title=clean_title[:60],
+        my_role=(req.my_role or "Frontend").strip()[:30],
+        needed_role=(req.needed_role or "Backend").strip()[:30],
+        min_streak=max(0, min(365, int(req.min_streak or 0))),
+        description=(req.description or "").strip()[:240],
+    )
+    db.add(sq)
+    db.commit()
+    db.refresh(sq)
+    return get_dev_hub_squads(current_user=current_user, db=db)
+
+@app.delete("/api/dev-hub/squads/{squad_id}")
+def delete_dev_hub_squad(
+    squad_id: int,
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    creator_id = f"user_{current_user.id}" if current_user else "default_user"
+    sq = db.query(models.SquadRequest).filter(models.SquadRequest.id == squad_id).first()
+    if not sq:
+        raise HTTPException(status_code=404, detail="Squad request not found")
+    if sq.creator_id != creator_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this squad request")
+    db.delete(sq)
+    db.commit()
+    return {"success": True, "deleted_id": squad_id}
+
+@app.get("/api/dev-hub/showcase")
+def get_dev_hub_showcase(
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    ensure_dev_hub_seed(db)
+    voter_id = f"user_{current_user.id}" if current_user else "default_user"
+    rows = db.query(models.ShowcaseProject).order_by(
+        models.ShowcaseProject.boost_count.desc(),
+        models.ShowcaseProject.id.asc()
+    ).all()
+    voted_ids = {
+        v.project_id
+        for v in db.query(models.ShowcaseVote).filter(models.ShowcaseVote.voter_id == voter_id).all()
+    }
+    user_map = {f"user_{u.id}": u for u in db.query(models.User).all()}
+
+    projects = []
+    for idx, proj in enumerate(rows, start=1):
+        u = user_map.get(proj.creator_id)
+        if u:
+            creator_meta = build_talent_entry(db, u, voter_id)
+        else:
+            guest_prog = get_user_progress(db, None)
+            dev_stats = compute_user_dev_stats(db, "default_user", guest_prog)
+            guest_card = dict(guest_prog.dev_card or {})
+            creator_meta = {
+                "id": proj.creator_id,
+                "username": proj.creator_username,
+                "display_name": proj.creator_username,
+                "avatar_config": models.DEFAULT_AVATAR_CONFIG.copy(),
+                "specialty_title": guest_card.get("specialtyTitle") or "Full-Stack Developer",
+                "collab_status": guest_card.get("collabStatus") or "Open to Work",
+                "bio": guest_card.get("bio") or "Building interactive web apps.",
+                "tech_stack": guest_card.get("techStack") or ["JavaScript", "React"],
+                "projects": guest_card.get("projects") or [],
+                "social_links": {
+                    "githubUrl": guest_card.get("githubUrl") or "",
+                    "linkedinUrl": guest_card.get("linkedinUrl") or "",
+                    "websiteUrl": guest_card.get("websiteUrl") or "",
+                    "telegramUrl": guest_card.get("telegramUrl") or "",
+                    "email": guest_card.get("email") or "",
+                },
+                "is_super": False,
+                "streak": dev_stats["streak"],
+                "bugs_fixed": dev_stats["bugs_fixed"],
+                "accuracy": dev_stats["accuracy"],
+                "mastery_percent": dev_stats["mastery_percent"],
+                "courses_mastery": dev_stats["courses_mastery"],
+            }
+        projects.append({
+            "id": proj.id,
+            "rank": idx,
+            "creator_id": proj.creator_id,
+            "creator_username": creator_meta["username"],
+            "title": proj.title,
+            "description": proj.description or "",
+            "url": proj.url or "https://github.com",
+            "tech_tags": proj.tech_tags or ["JavaScript", "React"],
+            "boost_count": proj.boost_count or 0,
+            "has_boosted": proj.id in voted_ids,
+            "creator": creator_meta,
+        })
+    return {"projects": projects}
+
+@app.post("/api/dev-hub/showcase")
+def create_dev_hub_showcase_project(
+    req: CreateShowcaseProjectRequest,
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    clean_title = (req.title or "").strip()
+    if len(clean_title) < 2:
+        raise HTTPException(status_code=400, detail="Project title is required")
+    creator_id = f"user_{current_user.id}" if current_user else "default_user"
+    creator_username = current_user.username if current_user else "Developer"
+
+    item = models.ShowcaseProject(
+        creator_id=creator_id,
+        creator_username=creator_username,
+        title=clean_title[:60],
+        description=(req.description or "").strip()[:240],
+        url=(req.url or "https://github.com").strip(),
+        boost_count=1,
+    )
+    item.tech_tags = (req.tech_tags or ["JavaScript", "React"])[:5]
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    vote = models.ShowcaseVote(project_id=item.id, voter_id=creator_id)
+    db.add(vote)
+    db.commit()
+    return get_dev_hub_showcase(current_user=current_user, db=db)
+
+@app.post("/api/dev-hub/showcase/{project_id}/boost")
+def toggle_boost_showcase_project(
+    project_id: int,
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    voter_id = f"user_{current_user.id}" if current_user else "default_user"
+    proj = db.query(models.ShowcaseProject).filter(models.ShowcaseProject.id == project_id).first()
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    existing_vote = db.query(models.ShowcaseVote).filter(
+        models.ShowcaseVote.project_id == project_id,
+        models.ShowcaseVote.voter_id == voter_id
+    ).first()
+
+    if existing_vote:
+        db.delete(existing_vote)
+        proj.boost_count = max(0, (proj.boost_count or 1) - 1)
+        has_boosted = False
+    else:
+        new_vote = models.ShowcaseVote(project_id=project_id, voter_id=voter_id)
+        db.add(new_vote)
+        proj.boost_count = (proj.boost_count or 0) + 1
+        has_boosted = True
+
+    db.commit()
+    db.refresh(proj)
+    return {
+        "success": True,
+        "project_id": proj.id,
+        "boost_count": proj.boost_count,
+        "has_boosted": has_boosted,
+    }
 
 @app.post("/api/dev/simulate-season-end")
 @app.post("/dev/simulate-season-end")

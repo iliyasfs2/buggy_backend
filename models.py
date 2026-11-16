@@ -166,3 +166,56 @@ class UserFollow(Base):
         CheckConstraint("follower_id != following_id", name="ck_user_not_self_follow"),
     )
 
+class SquadRequest(Base):
+    __tablename__ = "squad_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    creator_id = Column(String, index=True, nullable=False, default="default_user")
+    creator_username = Column(String, nullable=False, default="Developer")
+    project_title = Column(String, nullable=False)
+    my_role = Column(String, nullable=False, default="Frontend")
+    needed_role = Column(String, nullable=False, default="Backend")
+    min_streak = Column(Integer, default=0)
+    description = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ShowcaseProject(Base):
+    __tablename__ = "showcase_projects"
+
+    id = Column(Integer, primary_key=True, index=True)
+    creator_id = Column(String, index=True, nullable=False, default="default_user")
+    creator_username = Column(String, nullable=False, default="Developer")
+    title = Column(String, nullable=False)
+    description = Column(Text, default="")
+    url = Column(String, default="")
+    _tech_tags = Column("tech_tags", Text, default="[]")
+    boost_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    @property
+    def tech_tags(self):
+        if not self._tech_tags:
+            return []
+        try:
+            val = json.loads(self._tech_tags)
+            return val if isinstance(val, list) else []
+        except Exception:
+            return []
+
+    @tech_tags.setter
+    def tech_tags(self, value):
+        self._tech_tags = json.dumps(value if isinstance(value, list) else [])
+
+class ShowcaseVote(Base):
+    __tablename__ = "showcase_votes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, index=True, nullable=False)
+    voter_id = Column(String, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "voter_id", name="uq_showcase_project_vote"),
+    )
+
+
