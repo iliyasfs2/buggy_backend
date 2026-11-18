@@ -173,9 +173,11 @@ class SquadRequest(Base):
     creator_id = Column(String, index=True, nullable=False, default="default_user")
     creator_username = Column(String, nullable=False, default="Developer")
     project_title = Column(String, nullable=False)
+    project_vibe = Column(String, nullable=True, default="Portfolio Builder")
     my_role = Column(String, nullable=False, default="Frontend")
     needed_role = Column(String, nullable=False, default="Backend")
     min_streak = Column(Integer, default=0)
+    contact_link = Column(String, nullable=True, default="")
     description = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
 

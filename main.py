@@ -27,10 +27,20 @@ def ensure_sqlite_columns():
         prog_cols = [r[1] for r in conn.execute(text("PRAGMA table_info(user_progress)")).fetchall()]
         if "dev_card" not in prog_cols:
             conn.execute(text("ALTER TABLE user_progress ADD COLUMN dev_card TEXT DEFAULT '{}'"))
+        squad_cols = [r[1] for r in conn.execute(text("PRAGMA table_info(squad_requests)")).fetchall()]
+        if squad_cols:
+            if "project_vibe" not in squad_cols:
+                conn.execute(text("ALTER TABLE squad_requests ADD COLUMN project_vibe VARCHAR DEFAULT 'Portfolio Builder'"))
+            if "contact_link" not in squad_cols:
+                conn.execute(text("ALTER TABLE squad_requests ADD COLUMN contact_link VARCHAR DEFAULT ''"))
 
 ensure_sqlite_columns()
 
 app = FastAPI(title="Buggy Progress API (SQLAlchemy + Auth)")
+
+@app.get("/")
+def root_health():
+    return {"status": "ok", "service": "Buggy Progress API", "docs": "/docs"}
 
 app.add_middleware(
     CORSMiddleware,
@@ -1513,9 +1523,11 @@ def get_user_connections(
 
 class CreateSquadRequest(BaseModel):
     project_title: str
+    project_vibe: Optional[str] = "Portfolio Builder"
     my_role: str = "Frontend"
     needed_role: str = "Backend"
     min_streak: int = 0
+    contact_link: Optional[str] = ""
     description: str = ""
 
 class CreateShowcaseProjectRequest(BaseModel):
@@ -1850,9 +1862,11 @@ def get_dev_hub_squads(
             "creator_id": sq.creator_id,
             "creator_username": talent_meta["username"],
             "project_title": sq.project_title,
+            "project_vibe": getattr(sq, "project_vibe", None) or "Portfolio Builder",
             "my_role": sq.my_role,
             "needed_role": sq.needed_role,
             "min_streak": sq.min_streak or 0,
+            "contact_link": getattr(sq, "contact_link", None) or talent_meta["social_links"].get("telegramUrl") or talent_meta["social_links"].get("linkedinUrl") or "",
             "description": sq.description or "",
             "created_at": sq.created_at.isoformat() if sq.created_at else None,
             "is_mine": sq.creator_id == current_uid_str,
@@ -1876,9 +1890,11 @@ def create_dev_hub_squad(
         creator_id=creator_id,
         creator_username=creator_username,
         project_title=clean_title[:60],
+        project_vibe=(req.project_vibe or "Portfolio Builder").strip()[:40],
         my_role=(req.my_role or "Frontend").strip()[:30],
         needed_role=(req.needed_role or "Backend").strip()[:30],
         min_streak=max(0, min(365, int(req.min_streak or 0))),
+        contact_link=(req.contact_link or "").strip()[:160],
         description=(req.description or "").strip()[:240],
     )
     db.add(sq)
@@ -1908,6 +1924,12 @@ def get_dev_hub_showcase(
     db: Session = Depends(get_db)
 ):
     ensure_dev_hub_seed(db)
+    for u in db.query(models.User).all():
+        if u.dev_card:
+            sync_user_projects_to_showcase(db, f"user_{u.id}", u.username, u.dev_card)
+    guest_prog = db.query(models.UserProgress).filter(models.UserProgress.user_id == "default_user").first()
+    if guest_prog and guest_prog.dev_card:
+        sync_user_projects_to_showcase(db, "default_user", "Developer", guest_prog.dev_card)
     voter_id = f"user_{current_user.id}" if current_user else "default_user"
     rows = db.query(models.ShowcaseProject).order_by(
         models.ShowcaseProject.boost_count.desc(),
