@@ -147,15 +147,18 @@ def get_user_progress(db: Session, user: Optional[models.User] = None):
 DAILY_QUEST_POOL = [
     {"id": "earn_xp", "title": "Earn 30 XP today", "target": 30, "reward_bytes": 10},
     {"id": "complete_nodes", "title": "Finish 2 lesson nodes", "target": 2, "reward_bytes": 15},
-    {"id": "clean_accuracy", "title": "Score 80% or higher in a lesson", "target": 1, "reward_bytes": 20},
+    {"id": "clean_accuracy", "title": "Score 80%+ in a lesson", "target": 1, "reward_bytes": 20},
     {"id": "hunt_bugs", "title": "Fix 3 bugs in Debug Lab", "target": 3, "reward_bytes": 15},
+    {"id": "perfect_node", "title": "Finish 1 node with 0 mistakes", "target": 1, "reward_bytes": 25},
 ]
 
 VALID_QUEST_IDS = {q["id"] for q in DAILY_QUEST_POOL}
+QUEST_TITLE_BY_ID = {q["id"]: q["title"] for q in DAILY_QUEST_POOL}
 
 def build_daily_quests_for_date(target_date: date) -> list:
-    third_idx = 2 + (target_date.toordinal() % 2)
-    selected = [DAILY_QUEST_POOL[0], DAILY_QUEST_POOL[1], DAILY_QUEST_POOL[third_idx]]
+    third_pool = [DAILY_QUEST_POOL[2], DAILY_QUEST_POOL[3], DAILY_QUEST_POOL[4]]
+    third_quest = third_pool[target_date.toordinal() % len(third_pool)]
+    selected = [DAILY_QUEST_POOL[0], DAILY_QUEST_POOL[1], third_quest]
     return [
         {
             "id": item["id"],
@@ -184,14 +187,32 @@ def ensure_daily_quests(progress, db):
         if db:
             db.commit()
             db.refresh(progress)
+        return quests
+
+    title_updated = False
+    normalized_quests = []
+    for q in quests:
+        q_copy = dict(q)
+        canonical_title = QUEST_TITLE_BY_ID.get(q_copy.get("id"))
+        if canonical_title and q_copy.get("title") != canonical_title:
+            q_copy["title"] = canonical_title
+            title_updated = True
+        normalized_quests.append(q_copy)
+    if title_updated:
+        progress.daily_quests_state = normalized_quests
+        if db:
+            db.commit()
+            db.refresh(progress)
+        return normalized_quests
     return quests
 
-def apply_daily_quest_progress(
+def update_user_daily_quests(
     progress,
     db,
     earned_xp: int = 0,
     completed_lesson_node: bool = False,
     high_accuracy: bool = False,
+    flawless_node: bool = False,
     bugs_fixed_delta: int = 0,
 ):
     quests = [dict(q) for q in ensure_daily_quests(progress, db)]
@@ -204,6 +225,8 @@ def apply_daily_quest_progress(
         elif qid == "complete_nodes" and completed_lesson_node:
             curr = min(curr + 1, target)
         elif qid == "clean_accuracy" and high_accuracy:
+            curr = min(curr + 1, target)
+        elif qid == "perfect_node" and flawless_node:
             curr = min(curr + 1, target)
         elif qid == "hunt_bugs" and bugs_fixed_delta > 0:
             curr = min(curr + int(bugs_fixed_delta), target)
@@ -428,6 +451,7 @@ def get_progress_response(progress, db: Optional[Session] = None, streak_increas
         "unlocked_nodes": progress.unlocked_nodes,
         "quest_date": progress.daily_quests_date,
         "daily_quests_date": progress.daily_quests_date,
+        "daily_quests": progress.daily_quests_state,
         "daily_quests_state": progress.daily_quests_state
     }
 def serialize_user(user: models.User):
@@ -811,12 +835,13 @@ def complete_node(
 
     is_debug_mode = bool(req.mode and req.mode.startswith("debug"))
     is_high_acc = bool(req.flawless or (req.accuracy is not None and req.accuracy >= 80))
-    apply_daily_quest_progress(
+    update_user_daily_quests(
         progress,
         db,
         earned_xp=int(req.earnedXp or 0),
         completed_lesson_node=bool(req.nodeId and not is_debug_mode),
         high_accuracy=is_high_acc,
+        flawless_node=bool(req.flawless and not is_debug_mode),
         bugs_fixed_delta=1 if is_debug_mode else 0,
     )
 
@@ -1026,12 +1051,13 @@ def resolve_user_mistake(
     progress.bytes += 10
     progress.totalXP += 10
     progress.season_xp = (getattr(progress, "season_xp", 0) or 0) + 10
-    apply_daily_quest_progress(
+    update_user_daily_quests(
         progress,
         db,
         earned_xp=10,
         completed_lesson_node=False,
         high_accuracy=False,
+        flawless_node=False,
         bugs_fixed_delta=1,
     )
     db.commit()
