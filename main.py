@@ -101,6 +101,7 @@ class CompleteNodeRequest(BaseModel):
     earnedBytes: Optional[int] = 0
     nextNodeId: Optional[str] = None
     flawless: bool = False
+    accuracy: Optional[int] = None
     mode: Optional[str] = None
 
 class SwitchCourseRequest(BaseModel):
@@ -143,19 +144,74 @@ def get_user_progress(db: Session, user: Optional[models.User] = None):
         db.refresh(progress)
     return progress
 
+DAILY_QUEST_POOL = [
+    {"id": "earn_xp", "title": "Earn 30 XP today", "target": 30, "reward_bytes": 10},
+    {"id": "complete_nodes", "title": "Finish 2 lesson nodes", "target": 2, "reward_bytes": 15},
+    {"id": "clean_accuracy", "title": "Score 80% or higher in a lesson", "target": 1, "reward_bytes": 20},
+    {"id": "hunt_bugs", "title": "Fix 3 bugs in Debug Lab", "target": 3, "reward_bytes": 15},
+]
+
+VALID_QUEST_IDS = {q["id"] for q in DAILY_QUEST_POOL}
+
+def build_daily_quests_for_date(target_date: date) -> list:
+    third_idx = 2 + (target_date.toordinal() % 2)
+    selected = [DAILY_QUEST_POOL[0], DAILY_QUEST_POOL[1], DAILY_QUEST_POOL[third_idx]]
+    return [
+        {
+            "id": item["id"],
+            "title": item["title"],
+            "current": 0,
+            "target": item["target"],
+            "reward_bytes": item["reward_bytes"],
+            "claimed": False,
+        }
+        for item in selected
+    ]
+
 def ensure_daily_quests(progress, db):
-    today_str = date.today().isoformat()
+    today_obj = date.today()
+    today_str = today_obj.isoformat()
     quests = progress.daily_quests_state
-    if progress.daily_quests_date != today_str or not quests or not isinstance(quests, list):
+    has_legacy_ids = (
+        not isinstance(quests, list)
+        or len(quests) != 3
+        or any(not isinstance(q, dict) or q.get("id") not in VALID_QUEST_IDS for q in quests)
+    )
+    if progress.daily_quests_date != today_str or not quests or has_legacy_ids:
         progress.daily_quests_date = today_str
-        quests = [
-            {"id": "q1", "title": "Complete 1 lesson", "current": 0, "target": 1, "reward_bytes": 10, "claimed": False},
-            {"id": "q2", "title": "Earn 30 XP", "current": 0, "target": 30, "reward_bytes": 15, "claimed": False},
-            {"id": "q3", "title": "One flawless lesson", "current": 0, "target": 1, "reward_bytes": 25, "claimed": False}
-        ]
+        quests = build_daily_quests_for_date(today_obj)
         progress.daily_quests_state = quests
-        db.commit()
-        db.refresh(progress)
+        if db:
+            db.commit()
+            db.refresh(progress)
+    return quests
+
+def apply_daily_quest_progress(
+    progress,
+    db,
+    earned_xp: int = 0,
+    completed_lesson_node: bool = False,
+    high_accuracy: bool = False,
+    bugs_fixed_delta: int = 0,
+):
+    quests = [dict(q) for q in ensure_daily_quests(progress, db)]
+    for q in quests:
+        qid = q.get("id")
+        target = int(q.get("target", 1))
+        curr = int(q.get("current", 0))
+        if qid == "earn_xp" and earned_xp > 0:
+            curr = min(curr + int(earned_xp), target)
+        elif qid == "complete_nodes" and completed_lesson_node:
+            curr = min(curr + 1, target)
+        elif qid == "clean_accuracy" and high_accuracy:
+            curr = min(curr + 1, target)
+        elif qid == "hunt_bugs" and bugs_fixed_delta > 0:
+            curr = min(curr + int(bugs_fixed_delta), target)
+        q["current"] = curr
+        if curr >= target and not q.get("claimed", False):
+            q["claimed"] = True
+            progress.bytes = (progress.bytes or 0) + int(q.get("reward_bytes", 0))
+    progress.daily_quests_state = quests
     return quests
 
 def sync_user_battery(progress: models.UserProgress, db: Optional[Session] = None) -> int:
@@ -344,6 +400,7 @@ def compute_user_dev_stats(db: Optional[Session], target_uid_str: str, prog: Opt
 
 def get_progress_response(progress, db: Optional[Session] = None, streak_increased: bool = False):
     seconds_left = sync_user_battery(progress, db)
+    ensure_daily_quests(progress, db)
     dev_stats = compute_user_dev_stats(db, progress.user_id, progress)
     mistakes_count = dev_stats["pending_mistakes_count"]
 
@@ -369,6 +426,7 @@ def get_progress_response(progress, db: Optional[Session] = None, streak_increas
         "active_course": progress.active_course,
         "completed_nodes": progress.completed_nodes,
         "unlocked_nodes": progress.unlocked_nodes,
+        "quest_date": progress.daily_quests_date,
         "daily_quests_date": progress.daily_quests_date,
         "daily_quests_state": progress.daily_quests_state
     }
@@ -751,16 +809,16 @@ def complete_node(
 
     streak_increased = update_user_streak(progress)
 
-    quests = ensure_daily_quests(progress, db)
-    for q in quests:
-        if q["id"] == "q1":
-            q["current"] = min(q["current"] + 1, q["target"])
-        elif q["id"] == "q2" and req.earnedXp:
-            q["current"] = min(q["current"] + req.earnedXp, q["target"])
-        elif q["id"] == "q3" and req.flawless:
-            q["current"] = min(q["current"] + 1, q["target"])
-            
-    progress.daily_quests_state = quests
+    is_debug_mode = bool(req.mode and req.mode.startswith("debug"))
+    is_high_acc = bool(req.flawless or (req.accuracy is not None and req.accuracy >= 80))
+    apply_daily_quest_progress(
+        progress,
+        db,
+        earned_xp=int(req.earnedXp or 0),
+        completed_lesson_node=bool(req.nodeId and not is_debug_mode),
+        high_accuracy=is_high_acc,
+        bugs_fixed_delta=1 if is_debug_mode else 0,
+    )
 
     db.commit()
     db.refresh(progress)
@@ -968,6 +1026,14 @@ def resolve_user_mistake(
     progress.bytes += 10
     progress.totalXP += 10
     progress.season_xp = (getattr(progress, "season_xp", 0) or 0) + 10
+    apply_daily_quest_progress(
+        progress,
+        db,
+        earned_xp=10,
+        completed_lesson_node=False,
+        high_accuracy=False,
+        bugs_fixed_delta=1,
+    )
     db.commit()
     db.refresh(mistake)
     db.refresh(progress)
