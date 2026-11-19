@@ -220,4 +220,26 @@ class ShowcaseVote(Base):
         UniqueConstraint("project_id", "voter_id", name="uq_showcase_project_vote"),
     )
 
+class DebugChallenge(Base):
+    __tablename__ = "debug_challenges"
+
+    id = Column(Integer, primary_key=True, index=True)
+    challenge_id = Column(String, unique=True, index=True, nullable=False)
+    category = Column(String, index=True, nullable=False)
+    order_index = Column(Integer, default=0)
+    _payload = Column("payload", Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    @property
+    def payload(self):
+        try:
+            return json.loads(self._payload) if self._payload else {}
+        except Exception:
+            return {}
+
+    @payload.setter
+    def payload(self, value):
+        self._payload = json.dumps(value if isinstance(value, dict) else {})
+
+
 

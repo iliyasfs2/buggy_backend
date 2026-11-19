@@ -13,7 +13,7 @@ from sqlalchemy import or_, text
 
 import models
 import auth
-from database import engine, get_db
+from database import engine, get_db, SessionLocal
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -814,8 +814,10 @@ def complete_node(
         progress.bytes += req.earnedBytes
     elif req.mode == "debug_stories":
         progress.bytes += 30
+    elif req.mode == "debug_refactor":
+        progress.bytes += 15
     elif req.mode == "debug_tracing":
-        progress.bytes += 5
+        progress.bytes += 10
     elif not req.mode or not req.mode.startswith("debug"):
         progress.bytes += 10
 
@@ -1076,12 +1078,339 @@ def resolve_user_mistake(
         "progress": get_progress_response(progress, db)
     }
 
+INITIAL_DEBUG_CHALLENGES = {
+    "output_lab": [
+        {
+            "id": "out_1",
+            "code": "let x = 10;\nx += 5;\nconsole.log(x);",
+            "options": ["10", "15", "5", "Error"],
+            "answer": "15",
+            "explanation": "x += 5 adds 5 to 10, so x becomes 15."
+        },
+        {
+            "id": "out_2",
+            "code": "console.log(\"5\" + 2);",
+            "options": ["7", "\"52\"", "5", "NaN"],
+            "answer": "\"52\"",
+            "explanation": "Adding a string and a number joins them together as text."
+        },
+        {
+            "id": "out_3",
+            "code": "const items = [\"js\", \"py\", \"css\"];\nconsole.log(items[1]);",
+            "options": ["\"js\"", "\"py\"", "\"css\"", "undefined"],
+            "answer": "\"py\"",
+            "explanation": "Array index starts at 0, so index 1 is the second item."
+        },
+        {
+            "id": "out_4",
+            "code": "let isReady = false;\nconsole.log(!isReady);",
+            "options": ["false", "true", "null", "undefined"],
+            "answer": "true",
+            "explanation": "The ! operator flips false to true."
+        },
+        {
+            "id": "out_5",
+            "code": "const nums = [2, 4, 6];\nconst res = nums.map(n => n * 2);\nconsole.log(res[0]);",
+            "options": ["2", "4", "6", "12"],
+            "answer": "4",
+            "explanation": "map() doubles every item, so the first item becomes 4."
+        },
+        {
+            "id": "out_6",
+            "code": "let count = 0;\nfor (let i = 0; i < 3; i++) {\n  count++;\n}\nconsole.log(count);",
+            "options": ["2", "3", "4", "0"],
+            "answer": "3",
+            "explanation": "The loop runs 3 times (i = 0, 1, 2), increasing count to 3."
+        },
+        {
+            "id": "out_7",
+            "code": "const user = { name: \"Sara\" };\nconsole.log(user.age ?? 18);",
+            "options": ["undefined", "null", "18", "0"],
+            "answer": "18",
+            "explanation": "The ?? operator returns 18 because user.age is undefined."
+        },
+        {
+            "id": "out_8",
+            "code": "const word = \"Buggy\";\nconsole.log(word.slice(0, 3));",
+            "options": ["\"Bug\"", "\"Bugg\"", "\"ug\"", "\"ggy\""],
+            "answer": "\"Bug\"",
+            "explanation": "slice(0, 3) takes characters from index 0 up to 2."
+        }
+    ],
+    "clean_code": [
+        {
+            "id": "clean_1",
+            "messy_code": "const msg = \"Hello \" + name + \"!\";",
+            "prompt": "Make this string cleaner with template literals:",
+            "options": [
+                "const msg = `Hello ${name}!`;",
+                "const msg = 'Hello ${name}!';",
+                "const msg = `Hello $name!`;"
+            ],
+            "answer": "const msg = `Hello ${name}!`;",
+            "explanation": "Backticks (`) let you put variables directly inside strings."
+        },
+        {
+            "id": "clean_2",
+            "messy_code": "if (isLoggedIn === true) {\n  return true;\n} else {\n  return false;\n}",
+            "prompt": "Simplify this redundant boolean check:",
+            "options": [
+                "return isLoggedIn;",
+                "return isLoggedIn == true;",
+                "if (isLoggedIn) return;"
+            ],
+            "answer": "return isLoggedIn;",
+            "explanation": "isLoggedIn is already a boolean, so you can return it directly."
+        },
+        {
+            "id": "clean_3",
+            "messy_code": "const title = post.title;\nconst author = post.author;",
+            "prompt": "Use object destructuring in one line:",
+            "options": [
+                "const { title, author } = post;",
+                "const [ title, author ] = post;",
+                "const post = { title, author };"
+            ],
+            "answer": "const { title, author } = post;",
+            "explanation": "Object destructuring extracts multiple properties in one clean line."
+        },
+        {
+            "id": "clean_4",
+            "messy_code": "function double(n) {\n  return n * 2;\n}",
+            "prompt": "Convert to a concise arrow function:",
+            "options": [
+                "const double = n => n * 2;",
+                "const double = n => { n * 2 };",
+                "arrow double(n) => n * 2;"
+            ],
+            "answer": "const double = n => n * 2;",
+            "explanation": "Single-line arrow functions automatically return the expression."
+        },
+        {
+            "id": "clean_5",
+            "messy_code": "const all = listA.concat(listB);",
+            "prompt": "Merge both arrays using the modern spread operator:",
+            "options": [
+                "const all = [...listA, ...listB];",
+                "const all = [listA, listB];",
+                "const all = { ...listA, ...listB };"
+            ],
+            "answer": "const all = [...listA, ...listB];",
+            "explanation": "The spread operator (...) unpacks array items cleanly."
+        },
+        {
+            "id": "clean_6",
+            "messy_code": "let status;\nif (age >= 18) {\n  status = \"Adult\";\n} else {\n  status = \"Minor\";\n}",
+            "prompt": "Use a single-line ternary operator:",
+            "options": [
+                "const status = age >= 18 ? \"Adult\" : \"Minor\";",
+                "const status = age >= 18 : \"Adult\" ? \"Minor\";",
+                "const status = if (age >= 18) \"Adult\" else \"Minor\";"
+            ],
+            "answer": "const status = age >= 18 ? \"Adult\" : \"Minor\";",
+            "explanation": "Ternary operators make simple if/else assignments short and readable."
+        },
+        {
+            "id": "clean_7",
+            "messy_code": "if (user && user.profile && user.profile.avatar) {\n  show(user.profile.avatar);\n}",
+            "prompt": "Safely read nested properties with optional chaining:",
+            "options": [
+                "if (user?.profile?.avatar) show(user.profile.avatar);",
+                "if (user.profile?.avatar) show(user.avatar);",
+                "if (user??profile??avatar) show(avatar);"
+            ],
+            "answer": "if (user?.profile?.avatar) show(user.profile.avatar);",
+            "explanation": "Optional chaining (?.) stops safely if any parent object is missing."
+        },
+        {
+            "id": "clean_8",
+            "messy_code": "const active = [];\nfor (let i = 0; i < users.length; i++) {\n  if (users[i].isOnline) active.push(users[i]);\n}",
+            "prompt": "Replace this loop with a built-in array method:",
+            "options": [
+                "const active = users.filter(u => u.isOnline);",
+                "const active = users.map(u => u.isOnline);",
+                "const active = users.find(u => u.isOnline);"
+            ],
+            "answer": "const active = users.filter(u => u.isOnline);",
+            "explanation": "filter() returns a new array with only the items that pass the test."
+        }
+    ],
+    "mini_scenarios": [
+        {
+            "id": "scen_1",
+            "title": "Build a Shopping Cart Total",
+            "subtitle": "Calculate prices and apply a discount code in 3 steps.",
+            "steps": [
+                {
+                    "step": 1,
+                    "instruction": "First, sum all item prices using reduce():",
+                    "code_template": "const prices = [10, 20, 30];\nconst total = prices.___((sum, p) => sum + p, 0);",
+                    "options": ["reduce", "map", "filter"],
+                    "answer": "reduce"
+                },
+                {
+                    "step": 2,
+                    "instruction": "Check if the user has a valid promo code:",
+                    "code_template": "const hasPromo = true;\nconst discount = hasPromo ___ 10 : 0;",
+                    "options": ["?", "&&", "??"],
+                    "answer": "?"
+                },
+                {
+                    "step": 3,
+                    "instruction": "Return the final price after discount:",
+                    "code_template": "const finalPrice = total - discount;\n___ finalPrice;",
+                    "options": ["return", "console.log", "break"],
+                    "answer": "return"
+                }
+            ]
+        },
+        {
+            "id": "scen_2",
+            "title": "Password Strength Checker",
+            "subtitle": "Validate a user password before form submit.",
+            "steps": [
+                {
+                    "step": 1,
+                    "instruction": "Remove extra spaces from both ends of the password:",
+                    "code_template": "const rawPass = \"  secret123  \";\nconst cleanPass = rawPass.___();",
+                    "options": ["trim", "slice", "split"],
+                    "answer": "trim"
+                },
+                {
+                    "step": 2,
+                    "instruction": "Check if the password has at least 8 characters:",
+                    "code_template": "const isLongEnough = cleanPass.___ >= 8;",
+                    "options": ["length", "size", "count"],
+                    "answer": "length"
+                },
+                {
+                    "step": 3,
+                    "instruction": "Make sure it contains a number or special symbol:",
+                    "code_template": "const isValid = isLongEnough ___ cleanPass.includes(\"1\");",
+                    "options": ["&&", "||", "!=="],
+                    "answer": "&&"
+                }
+            ]
+        },
+        {
+            "id": "scen_3",
+            "title": "Fetch User Profile from API",
+            "subtitle": "Load user data safely from a backend server.",
+            "steps": [
+                {
+                    "step": 1,
+                    "instruction": "Mark the function as asynchronous so we can use await:",
+                    "code_template": "___ function loadUser() {\n  const res = await fetch(\"/api/user\");",
+                    "options": ["async", "await", "defer"],
+                    "answer": "async"
+                },
+                {
+                    "step": 2,
+                    "instruction": "Convert the server response into a JSON object:",
+                    "code_template": "  const data = await res.___();\n  return data;",
+                    "options": ["json", "parse", "text"],
+                    "answer": "json"
+                },
+                {
+                    "step": 3,
+                    "instruction": "Catch network errors so the app never crashes:",
+                    "code_template": "} ___ (error) {\n  console.log(\"Failed to load user\");\n}",
+                    "options": ["catch", "else", "finally"],
+                    "answer": "catch"
+                }
+            ]
+        },
+        {
+            "id": "scen_4",
+            "title": "Dark Mode Toggle Button",
+            "subtitle": "Switch themes and save the choice in the browser.",
+            "steps": [
+                {
+                    "step": 1,
+                    "instruction": "Select the theme button from the DOM:",
+                    "code_template": "const btn = document.___(\"" + chr(35) + "theme-btn\");",
+                    "options": ["querySelector", "getElement", "select"],
+                    "answer": "querySelector"
+                },
+                {
+                    "step": 2,
+                    "instruction": "Toggle the dark class on the page body when clicked:",
+                    "code_template": "btn.addEventListener(\"click\", () => {\n  document.body.classList.___(\"dark\");\n});",
+                    "options": ["toggle", "switch", "change"],
+                    "answer": "toggle"
+                },
+                {
+                    "step": 3,
+                    "instruction": "Save the theme choice in localStorage:",
+                    "code_template": "localStorage.___(\"theme\", \"dark\");",
+                    "options": ["setItem", "save", "push"],
+                    "answer": "setItem"
+                }
+            ]
+        }
+    ]
+}
+
+def ensure_debug_challenges_seed(db: Session):
+    existing_rows = db.query(models.DebugChallenge).all()
+    existing_map = {row.challenge_id: row for row in existing_rows}
+    changed = False
+    for category, items in INITIAL_DEBUG_CHALLENGES.items():
+        for idx, item in enumerate(items):
+            cid = item["id"]
+            if cid not in existing_map:
+                record = models.DebugChallenge(
+                    challenge_id=cid,
+                    category=category,
+                    order_index=idx,
+                )
+                record.payload = item
+                db.add(record)
+                changed = True
+            else:
+                row = existing_map[cid]
+                if row.category != category or row.order_index != idx or row.payload != item:
+                    row.category = category
+                    row.order_index = idx
+                    row.payload = item
+                    changed = True
+    if changed:
+        db.commit()
+
+def seed_initial_debug_challenges_on_startup():
+    db = SessionLocal()
+    try:
+        ensure_debug_challenges_seed(db)
+    finally:
+        db.close()
+
+seed_initial_debug_challenges_on_startup()
+
+@app.get("/api/debug/challenges")
+@app.get("/debug/challenges")
+def get_debug_challenges(db: Session = Depends(get_db)):
+    ensure_debug_challenges_seed(db)
+    rows = db.query(models.DebugChallenge).order_by(
+        models.DebugChallenge.category.asc(),
+        models.DebugChallenge.order_index.asc()
+    ).all()
+    grouped = {
+        "output_lab": [],
+        "clean_code": [],
+        "mini_scenarios": []
+    }
+    for r in rows:
+        if r.category in grouped:
+            grouped[r.category].append(r.payload)
+    return grouped
+
 @app.get("/api/debug/stats")
 @app.get("/debug/stats")
 def get_debug_stats(
     user: Optional[models.User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
+    ensure_debug_challenges_seed(db)
     user_id = f"user_{user.id}" if user else "default_user"
     pending_count = db.query(models.UserMistake).filter(
         models.UserMistake.user_id == user_id,
@@ -1092,12 +1421,21 @@ def get_debug_stats(
         models.UserMistake.user_id == user_id,
         or_(models.UserMistake.resolved == True, models.UserMistake.status == "resolved")
     ).count()
+    output_count = db.query(models.DebugChallenge).filter(
+        models.DebugChallenge.category == "output_lab"
+    ).count()
+    clean_count = db.query(models.DebugChallenge).filter(
+        models.DebugChallenge.category == "clean_code"
+    ).count()
+    scenarios_count = db.query(models.DebugChallenge).filter(
+        models.DebugChallenge.category == "mini_scenarios"
+    ).count()
     return {
         "pending_mistakes_count": pending_count,
         "resolved_mistakes_count": resolved_count,
-        "reading_exercises_count": 8,
-        "refactor_exercises_count": 6,
-        "stories_count": 4
+        "reading_exercises_count": output_count or 8,
+        "refactor_exercises_count": clean_count or 8,
+        "stories_count": scenarios_count or 4
     }
 
 LEAGUE_TITLES = [
